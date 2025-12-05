@@ -80,6 +80,7 @@ type crtm_conf
  character(len=255), allocatable :: SENSOR_ID(:)
  character(len=255) :: ENDIAN_TYPE
  character(len=255) :: COEFFICIENT_PATH, NC_COEFFICIENT_PATH
+ character(len=255) :: TauCoeff_Format, SpcCoeff_Format
  character(len=255) :: CloudCoeff_Format, AerosolCoeff_Format
  character(len=255) :: Aerosol_Model, Cloud_Model
  character(len=255) :: &
@@ -550,6 +551,19 @@ character(max_string) :: cloud_reff_method
     call f_confOpts%get_or_die("NC_CoefficientPath",str)
     conf%NC_COEFFICIENT_PATH = str
  endif
+
+ ! Spc and Tau coefficient file format
+ conf%SpcCoeff_Format = "Binary"
+ if (f_confOpts%has("SpcCoeff_Format")) then
+    call f_confOpts%get_or_die("SpcCoeff_Format",str)
+    conf%SpcCoeff_Format = str
+ end if
+
+ conf%TauCoeff_Format = "Binary"
+ if (f_confOpts%has("TauCoeff_Format")) then
+    call f_confOpts%get_or_die("TauCoeff_Format",str)
+    conf%TauCoeff_Format = str
+ end if
 
  ! Cloud coefficient file, model, and format
  conf%Cloud_Model = "CRTM"
@@ -1638,6 +1652,9 @@ end function uv_to_wdir
     ELSEIF (cmp_strings(aerosol_option,"aerosols_gocart_geos")) THEN
        ALLOCATE(var_aerosols(n_aerosols_gocart_geos))
        var_aerosols=var_aerosols_gocart_geos
+    ELSEIF (cmp_strings(aerosol_option,"aerosols_gocart2g_mpas")) THEN
+       ALLOCATE(var_aerosols(n_aerosols_gocart2g_mpas))
+       var_aerosols=var_aerosols_gocart2g_mpas
     ELSE
        WRITE(err_msg,*) 'assign_aerosol_names: aerosol_option not implemented'&
        &//TRIM(aerosol_option)
