@@ -14,7 +14,7 @@ public :: ufo_vars_read, ufo_vars_getindex
 integer, parameter, public :: n_aerosols_gocart_default=14,&
      &n_aerosols_gocart_gefs=15,n_aerosols_gocart_ufs=18,&
      &n_aerosols_gocart_geos=18,& !soon 21 for geos
-     &n_aerosols_gocart2g_mpas=20,&
+     &n_aerosols_gocart2g_mpas=20
 
 integer, parameter, public :: MAXVARLEN=110
 character(len=MAXVARLEN), public, parameter :: var_tv   = "virtual_temperature"

@@ -920,7 +920,8 @@ integer  :: id_cld(1)
     call ufo_geovals_get_var(geovals, var_rh, geoval)
     do k1 = 1, n_Profiles
       WHERE (geoval%vals(:, k1) > 1.0_kind_real) geoval%vals(:, k1) = 1.0_kind_real
-      atm(k1)%Relative_Humidity(:) = geoval%vals(:, k1)        ! fraction
+      WHERE (geoval%vals(:, k1) < 0.0_kind_real) geoval%vals(:, k1) = 0.0_kind_real
+      atm(k1)%Relative_Humidity(1:n_Layers) = geoval%vals(:, k1)        ! fraction
       atm(k1)%Climatology = US_STANDARD_ATMOSPHERE
     end do
   endif
@@ -1819,7 +1820,7 @@ end function uv_to_wdir
                atm(m)%aerosol(i)%TYPE  = 5 ! dust bin 5
 
             ! Sea salt
-             CASE (var_ss001)
+            CASE (var_ss001)
                atm(m)%aerosol(i)%TYPE  = 6 ! sea salt bin 1
             CASE (var_ss002)
                atm(m)%aerosol(i)%TYPE  = 7 ! sea salt bin 2
