@@ -45,29 +45,33 @@ float grdcrd1(const float & d, const std::vector<float> & gh,
   if (iflag == 1) {
   //   Case in which gh is in increasing order
     if (d <= gh[0]) {
-       ix = 0;
-     } else {
-       ix = nlevs - 1;
-       for (size_t k = 0 ; k < nlevs-1 ; ++k) {
-         if (d <= gh[k]) {
-           ix = k-1;
-           break;
-         }
-       }
-     }
+      ix = 0;
+    } else {
+      ix = nlevs - 2;
+      for (size_t k = 1 ; k < nlevs ; ++k) {
+        if (d <= gh[k]) {
+          ix = k-1;
+          break;
+        }
+      }
+    }
   } else if (iflag == -1) {
   //   Case in which gh is in decreasing order
     if (d >= gh[0]) {
-       ix = 0;
-     } else {
-       ix = nlevs - 1;
-       for (size_t k = 0 ; k < nlevs-1 ; ++k) {
-         if (d >= gh[k]) {
-           ix = k-1;
-           break;
-         }
-       }
-     }
+      ix = 0;
+    } else {
+      ix = nlevs - 2;
+      for (size_t k = 1 ; k < nlevs ; ++k) {
+        if (d >= gh[k]) {
+          ix = k-1;
+          break;
+        }
+      }
+    }
+  } else {
+  // Defensive: handle unexpected iflag values
+    throw eckit::Exception("ObsErrorFactorPressureCheck grdcrd1: "
+                            "iflag must be 1 (increasing order) or -1 (decreasing order)");
   }
   result = 1.0f+static_cast<float>(ix) + (d-gh[ix])/(gh[ix+1]-gh[ix]);
   return result;
@@ -82,19 +86,14 @@ static ObsFunctionMaker<ObsErrorFactorPressureCheck> makerSteps_("ObsErrorFactor
 ObsErrorFactorPressureCheck::ObsErrorFactorPressureCheck(const eckit::Configuration &config)
   : invars_() {
   oops::Log::trace() << "ObsErrorFactorPressureCheck constructor" << std::endl;
-  const float missing = util::missingValue<float>();
   // Initialize options
   options_.reset(new ObsErrorFactorPressureCheckParameters());
   options_->deserialize(config);
 
   const std::string inflatevars = options_->inflatevars.value();
-  const float infl_coeff = options_->infl_coeff.value();
 
   const std::string errgrp = options_->testObserr.value();
   const std::string flaggrp = options_->testQCflag.value();
-
-  const bool obsErrorRamp = options_->obsErrorRamp.value();
-  const float max_levels_below_surface = options_->maxLevelsBelowSurface.value();
 
   invars_ += Variable("ObsType/"+inflatevars);
   invars_ += Variable(errgrp+"/"+inflatevars);
@@ -204,7 +203,7 @@ void ObsErrorFactorPressureCheck::compute(const ObsFilterData & data,
   formulas::Formulation formulation = formulas::Formulation::Rogers;
 
   int iflag;
-  double sat_specific_humidity;
+  double sat_specific_humidity = 0.0;
   const float grav = Constants::grav;
   const float deg2rad = Constants::deg2rad;
   const float grav_equator = Constants::grav_equator;
@@ -215,7 +214,6 @@ void ObsErrorFactorPressureCheck::compute(const ObsFilterData & data,
   const float grav_ratio = Constants::grav_ratio;
   float fact, slat, sin2, termg, termr, termrg;
   float dpres, sfcchk, logobspres, logsfcpres, rlow, ramp, rhgh, drpx;
-  float obserror, new_error, error_factor;
   std::vector<float> zges_mh(nlevs);
   std::vector<float> logprsl(nlevs), airtemp_prof(nlevs);
   std::vector<double> qs_profile(nlevs);
@@ -272,6 +270,7 @@ void ObsErrorFactorPressureCheck::compute(const ObsFilterData & data,
         }
       }
 
+      sfcchk = 0.0f;
       if (reported_height) {
         fact = 0.0f;
         if (obs_height[iloc]-dstn[iloc] > 10.0f) {

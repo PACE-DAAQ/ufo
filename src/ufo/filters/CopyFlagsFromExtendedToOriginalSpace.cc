@@ -19,8 +19,8 @@ namespace ufo {
 
 CopyFlagsFromExtendedToOriginalSpace::CopyFlagsFromExtendedToOriginalSpace
                                     (ioda::ObsSpace &obsdb, const Parameters_ &parameters,
-                                     std::shared_ptr<ioda::ObsDataVector<int>> flags,
-                                     std::shared_ptr<ioda::ObsDataVector<float>> obserr)
+                                     ioda::ObsDataVector<int> & flags,
+                                     ioda::ObsDataVector<float> & obserr)
   : FilterBase(obsdb, parameters, flags, obserr), parameters_(parameters)
 {
   oops::Log::trace() << "CopyFlagsFromExtendedToOriginalSpace constructor start" << std::endl;
@@ -55,7 +55,7 @@ void CopyFlagsFromExtendedToOriginalSpace::applyFilter(const std::vector<bool> &
                                           const Variables & filtervars,
                                           std::vector<std::vector<bool>> & flagged) const {
   oops::Log::trace() << "CopyFlagsFromExtendedToOriginalSpace applyFilter start" << std::endl;
-  oops::Log::debug() << "CopyFlagsFromExtendedToOriginalSpace obserr: " << *obserr_ << std::endl;
+  oops::Log::debug() << "CopyFlagsFromExtendedToOriginalSpace obserr: " << obserr_ << std::endl;
 
   // Number of locations.
   const size_t nlocs = obsdb_.nlocs();
@@ -115,7 +115,7 @@ void CopyFlagsFromExtendedToOriginalSpace::applyFilter(const std::vector<bool> &
           }
         }  // obs location jlev
     }  // profile jprof
-    obsdb_.put_db(flagName, varName, varToCopy);
+    obsdb_.put_db(flagName, varName, varToCopy, filtervars.variable(jv).dimList());
   }
   oops::Log::trace() << "CopyFlagsFromExtendedToOriginalSpace applyFilter complete" << std::endl;
 }

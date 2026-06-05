@@ -13,14 +13,13 @@
 
 #include "ioda/ObsVector.h"
 
-#include "oops/interface/ObsErrorBase.h"
 #include "oops/util/parameters/NumericConstraints.h"
 #include "oops/util/parameters/OptionalParameter.h"
 #include "oops/util/parameters/Parameter.h"
 #include "oops/util/parameters/Parameters.h"
 
+#include "ufo/errors/ObsErrorBase.h"
 #include "ufo/errors/ObsErrorParametersBase.h"
-#include "ufo/ObsTraits.h"
 
 namespace ioda {
   class ObsSpace;
@@ -33,7 +32,7 @@ class ObsErrorDiagonalParameters : public ObsErrorParametersBase {
   OOPS_CONCRETE_PARAMETERS(ObsErrorDiagonalParameters, ObsErrorParametersBase)
  public:
   /// perturbation amplitude multiplier
-  oops::Parameter<double> pert{"random amplitude", 1.0, this};
+  oops::Parameter<double> pert{"obs perturbations amplitude", 1.0, this};
   oops::Parameter<bool> zeroMeanPerturbations{"zero-mean perturbations", false, this};
   /// 1-based ensemble member index.
   /// Used (and required) only if `zero-mean perturbations` is set to true.
@@ -45,15 +44,14 @@ class ObsErrorDiagonalParameters : public ObsErrorParametersBase {
 
 // -----------------------------------------------------------------------------
 /// \brief Diagonal observation error covariance matrix.
-class ObsErrorDiagonal : public oops::interface::ObsErrorBase<ObsTraits> {
+class ObsErrorDiagonal : public ObsErrorBase {
  public:
   /// The type of parameters for this class.
   typedef ObsErrorDiagonalParameters Parameters_;
 
   static const std::string classname() {return "ufo::ObsErrorDiagonal";}
 
-  ObsErrorDiagonal(const eckit::Configuration &, ioda::ObsSpace &,
-                   const eckit::mpi::Comm &timeComm);
+  ObsErrorDiagonal(const Parameters_ &, ioda::ObsSpace &, const eckit::mpi::Comm &);
 
 /// Update after obs errors potentially changed
   void update(const ioda::ObsVector &) override;
@@ -63,6 +61,15 @@ class ObsErrorDiagonal : public oops::interface::ObsErrorBase<ObsTraits> {
 
 /// Multiply a Departure by \f$R^{-1}\f$
   void inverseMultiply(ioda::ObsVector &) const override;
+
+/// Create local R matrix
+  void localize(ioda::ObsVector &) const override;
+
+/// Return dimension of local R matrix.
+  int localDim() const override;
+
+/// Multiply a local obs vector \p zz by \f$R^{-1}\f$.
+  Eigen::MatrixXf localInverseMultiply(const Eigen::MatrixXf &zz) const override;
 
 /// Generate random perturbation
   void randomize(ioda::ObsVector &) const override;
@@ -79,11 +86,18 @@ class ObsErrorDiagonal : public oops::interface::ObsErrorBase<ObsTraits> {
 /// Return inverseVariance
   std::unique_ptr<ioda::ObsVector> getInverseVariance() const override;
 
+  Eigen::VectorXd local_invVarR() const {return local_inverseVariance_;}
+
  private:
   void print(std::ostream &) const override;
+  void randomizeWithoutZeroEnsembleMean(ioda::ObsVector &) const;
+  void randomizeWithZeroEnsembleMean(ioda::ObsVector &) const;
+
   ioda::ObsVector stddev_;
   ioda::ObsVector inverseVariance_;
-  Parameters_ options_;
+  mutable Eigen::VectorXd local_stddev_;
+  mutable Eigen::VectorXd local_inverseVariance_;
+  Parameters_ params_;
 };
 
 // -----------------------------------------------------------------------------

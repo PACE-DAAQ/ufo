@@ -22,22 +22,25 @@ namespace ufo {
 
 // -----------------------------------------------------------------------------
 
-ObsErrorCrossVarCov::ObsErrorCrossVarCov(const eckit::Configuration & crossVarConf,
+static ObsErrorMaker<ObsErrorCrossVarCov> makerCrossVarCov_("cross variable covariances");
+
+// -----------------------------------------------------------------------------
+
+ObsErrorCrossVarCov::ObsErrorCrossVarCov(const Parameters_ & params,
                                          ioda::ObsSpace & obspace,
                                          const eckit::mpi::Comm &timeComm)
-  : ObsErrorBase(timeComm),
+  : ObsErrorBase(timeComm), params_(params),
     stddev_(obspace, "ObsError"), vars_(obspace.assimvariables()),
     varcorrelations_(Eigen::MatrixXd::Identity(stddev_.nvars(), stddev_.nvars())),
     reconditioner_(nullptr)
 {
-  // deserialize configuration into ObsErrorCrossVarCovParameters
-  params_.validateAndDeserialize(crossVarConf);
+  oops::Log::trace() << "ObsErrorCrossVarCov::ObsErrorCrossVarCov starting" << std::endl;
   // Create reconditioner
   reconditioner_.reset(new ObsErrorReconditioner(params_.reconditioning.value()));
   // Open and read error correlations from the hdf5 file
   ioda::Engines::BackendNames  backendName = ioda::Engines::BackendNames::Hdf5File;
   ioda::Engines::BackendCreationParameters backendParams;
-  backendParams.fileName = params_.inputFile;
+  backendParams.fileName = params.inputFile;
   backendParams.action   = ioda::Engines::BackendFileActions::Open;
   backendParams.openMode = ioda::Engines::BackendOpenModes::Read_Only;
 
@@ -67,7 +70,7 @@ ObsErrorCrossVarCov::ObsErrorCrossVarCov(const eckit::Configuration & crossVarCo
     allvarcorrelations = stddevinv * allvarcovariances * stddevinv;
   } else {
     oops::Log::error() << "One of obserror_correlations or obserror_covariances has to "
-                       << "be specified in the input file " << params_.inputFile.value()
+                       << "be specified in the input file " << params.inputFile.value()
                        << std::endl;
     throw eckit::BadParameter("One of obserror_correlations or obserror_covariances has "
                               "to be specified in the input file.");
@@ -87,7 +90,7 @@ ObsErrorCrossVarCov::ObsErrorCrossVarCov(const eckit::Configuration & crossVarCo
       // Print into to the trace log
       oops::Log::trace() << "ObsErrorCrossVarCov: Obs error correlations not provided for "
                          << "variable " << vars_[ivar] << " in "
-                         << params_.inputFile.value() << ", correlations set to zero.\n";
+                         << params.inputFile.value() << ", correlations set to zero.\n";
     } else {
       for (size_t jvar = 0; jvar < var_idx.size(); ++jvar) {
         if (var_idx[jvar] >= 0) {
@@ -101,9 +104,10 @@ ObsErrorCrossVarCov::ObsErrorCrossVarCov(const eckit::Configuration & crossVarCo
   if (count_noErrCorrect > 0) {
     oops::Log::warning() << "ObsErrorCrossVarCov: Obs error correlations not provided for "
                          << count_noErrCorrect << " of " << count_ttl_vars
-                         << " channels/variables in file: " << params_.inputFile.value()
+                         << " channels/variables in file: " << params.inputFile.value()
                          << ". To see which channels, turn on OOPS_TRACE\n" << std::endl;
   }
+  oops::Log::trace() << "ObsErrorCrossVarCov::ObsErrorCrossVarCov finished" << std::endl;
 }
 
 // -----------------------------------------------------------------------------
@@ -301,6 +305,85 @@ void ObsErrorCrossVarCov::inverseMultiply(ioda::ObsVector & dy) const {
 
   // D^{-1/2} * C^{-1} * D^{-1/2} * dy
   dy /= stddev_;
+}
+
+// -----------------------------------------------------------------------------
+
+void ObsErrorCrossVarCov::localize(ioda::ObsVector & locvector) const {
+  oops::Log::trace() << "ufo::ObsErrorCrossVarCov::localize start" << std::endl;
+
+  const double missing = util::missingValue<double>();
+
+  ASSERT_MSG(locvector.size() == stddev_.size(),
+             "ObsErrorCrossVarCov::localize: "
+             "Localization vector dimension must match dimension of obs space.");
+  std::vector<double> localstddev;
+  const size_t nlocs = locvector.nlocs();
+  const size_t nvars = locvector.nvars();
+  local_jvars_.clear();
+  local_nobs_.clear();
+  for (size_t jloc = 0; jloc < nlocs; ++jloc) {
+    size_t nused = 0;
+    for (size_t jvar = 0; jvar < nvars; ++jvar) {
+      size_t jj = jloc*nvars + jvar;
+      if (locvector[jj] != missing && locvector[jj] <= 0) {
+        throw eckit::BadValue("Localization weights must be positive. Use "
+                              "oops::util::missingValue<double>() to indicate "
+                              "an observation with a weight of zero.");
+      }
+      if (locvector[jj] != missing && stddev_[jj] != missing) {
+        localstddev.push_back(stddev_[jj] * std::pow(locvector[jj], -0.5));
+        local_jvars_.push_back(jvar);
+        ++nused;
+      }
+    }
+    if (nused > 0) local_nobs_.push_back(nused);
+  }
+  local_stddev_ = Eigen::Map<Eigen::VectorXd>(localstddev.data(), localstddev.size());
+}
+
+int ObsErrorCrossVarCov::localDim() const {
+  return local_stddev_.size();
+}
+
+Eigen::MatrixXf ObsErrorCrossVarCov::localInverseMultiply(const Eigen::MatrixXf & zz) const {
+  ASSERT_MSG(zz.cols() == localDim(),
+             "ObsErrorCrossVarCov::localInverseMultiply: "
+             "Input vector dimension must match local R matrix dimension");
+  Eigen::MatrixXf zzRinv(zz.rows(), zz.cols());
+  size_t j_obs = 0;
+  // loop over obs locations in local volume
+  for (int pt_nobs : local_nobs_) {
+    // construct pt std dev and correlations for obs at this point
+    Eigen::VectorXf pt_stddev = local_stddev_.segment(j_obs, pt_nobs).cast<float>();
+    Eigen::MatrixXf pt_corr = Eigen::MatrixXf::Identity(pt_nobs, pt_nobs);
+    for (size_t ipt = 0; ipt < pt_nobs; ++ipt) {
+      for (size_t jpt = 0; jpt < ipt; ++jpt) {
+        // only fill lower triangle as that's all we need for LLT
+        pt_corr(ipt, jpt) = static_cast<float>(varcorrelations_(local_jvars_[j_obs+ipt],
+                                                                local_jvars_[j_obs+jpt]));
+      }
+    }
+    // Cholesky decomposition to allow inverse multiplication
+    Eigen::LLT<Eigen::MatrixXf> LLT(pt_corr);
+    for (size_t ii = 0; ii < zz.rows(); ++ii) {
+      Eigen::VectorXf row = zz(ii, Eigen::seq(j_obs, j_obs+pt_nobs-1)).transpose();
+      // D^{-1/2} * row
+      row.array() /= pt_stddev.array();
+      // C^{-1} * D^{-1/2} * row
+      LLT.solveInPlace(row);
+      // D^{-1/2} * C^{-1} * D^{-1/2} * row
+      row.array() /= pt_stddev.array();
+      // store in output
+      zzRinv(ii, Eigen::seq(j_obs, j_obs+pt_nobs-1)) = row.transpose();
+    }
+    j_obs += pt_nobs;
+  }
+  return zzRinv;
+}
+
+Eigen::VectorXd ObsErrorCrossVarCov::local_invVarR() const {
+  throw eckit::BadParameter("ObsErrorCrossVarCov::local_invVarR not implemented.");
 }
 
 // -----------------------------------------------------------------------------

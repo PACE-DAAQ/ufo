@@ -1,5 +1,5 @@
 /*
- * (C) Copyright 2017-2018 UCAR
+ * (C) Copyright 2026 Met Office
  * 
  * This software is licensed under the terms of the Apache Licence Version 2.0
  * which can be obtained at http://www.apache.org/licenses/LICENSE-2.0. 
@@ -74,8 +74,8 @@ ObsRadianceRTTOV::~ObsRadianceRTTOV() {
 void ObsRadianceRTTOV::simulateObs(const GeoVaLs & gom, ioda::ObsVector & ovec,
                                   ObsDiagnostics & dvec, const QCFlags_t& qc_flags) const {
   ufo_radiancerttov_simobs_f90(keyOperRadianceRTTOV_, gom.toFortran(), odb_,
-                          ovec.nvars(), ovec.nlocs(), ovec.toFortran(),
-                          dvec.toFortran(), reinterpret_cast<const void*>(&qc_flags));
+                               ovec.nvars(), ovec.nlocs(), ovec.toFortran(),
+                               dvec.toFortran(), qc_flags);
   oops::Log::trace() << "ObsRadianceRTTOV::simulateObs done." << std::endl;
 }
 

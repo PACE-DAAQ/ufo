@@ -416,6 +416,9 @@ RecursiveSplitter ObsAccessor::splitObservationsIntoIndependentGroups(
   case GroupBy::SINGLE_OBS:
     groupObservationsByCategoryVariable(validObsIds, splitter);
     break;
+  case GroupBy::RECORD_ID:
+    groupObservationsByRecordNumber(validObsIds, splitter);
+    break;
   }
   return splitter;
 }
@@ -442,10 +445,14 @@ void ObsAccessor::groupObservationsByCategoryVariable(
                                                  *obsdb_, *obsDistribution_, splitter);
     break;
 
+  case ioda::ObsDtype::Empty:
+    // Nothing to group for empty variable
+    break;
+
   default:
     throw eckit::UserError(
           categoryVariable_->group() + "/" + categoryVariable_->variable() +
-          " is neither an integer nor a string variable", Here());
+          " is not an implemented type of Integer, String, or Empty.", Here());
   }
 }
 

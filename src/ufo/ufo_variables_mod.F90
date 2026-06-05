@@ -132,9 +132,9 @@ character(len=MAXVARLEN), public, parameter :: var_rh          = "relative_humid
 character(len=MAXVARLEN), public, parameter :: var_sfc_landmask   = "landmask"       ! 0 (sea), 1 (land)
 character(len=MAXVARLEN), public, parameter :: var_sfc_seaicefrac = "seaice_fraction"
 
-character(len=MAXVARLEN), public :: var_seaicefrac      = "sea_ice_category_area_fraction"
-character(len=MAXVARLEN), public :: var_seaicethick     = "sea_ice_category_thickness"
-character(len=MAXVARLEN), public :: var_seaicesnowthick = "sea_ice_category_snow_thickness"
+character(len=MAXVARLEN), public :: var_seaicefrac      = "sea_ice_area_fraction"
+character(len=MAXVARLEN), public :: var_seaicethick     = "sea_ice_thickness"
+character(len=MAXVARLEN), public :: var_seaicesnowthick = "sea_ice_snow_thickness"
 character(len=MAXVARLEN), public :: var_ocn_chl         = "mass_concentration_of_chlorophyll_in_sea_water"
 character(len=MAXVARLEN), public :: var_abs_topo        = "sea_surface_height_above_geoid"
 character(len=MAXVARLEN), public :: var_ocn_pot_temp    = "sea_water_potential_temperature"
@@ -266,7 +266,6 @@ end subroutine ufo_vars_read
 ! ------------------------------------------------------------------------------
 
 integer function ufo_vars_getindex(vars, varname)
-use ufo_utils_mod, only: cmp_strings
 implicit none
 character(len=*), intent(in) :: vars(:)
 character(len=*), intent(in) :: varname
@@ -276,7 +275,7 @@ integer :: ivar
 ufo_vars_getindex = -1
 
 do ivar = 1, size(vars)
-  if (cmp_strings(vars(ivar), varname)) then
+  if (vars(ivar) == varname) then
     ufo_vars_getindex = ivar
     exit
   endif

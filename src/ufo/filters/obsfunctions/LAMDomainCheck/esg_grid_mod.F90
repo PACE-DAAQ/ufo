@@ -116,7 +116,9 @@ real(kind_real),dimension(2):: xs,xt
 !=============================================================================
 ff=F
 call xctoxs(xc,xs)
-call xstoxt(k,xs,xt,ff); if(ff)return
+call xstoxt(k,xs,xt,ff)
+xm = 0
+if(ff) return
 call xttoxm(a,xt,xm,ff)
 end subroutine xctoxm_ak
 !=============================================================================
@@ -177,10 +179,11 @@ logical, intent(out):: ff
 real(kind_real):: ra,razt
 !=============================================================================
 ff=F
-if    (a>zero)then; ra=sqrt( a); razt=ra*zt; zm=atan (razt)/ra
-elseif(a<zero)then; ra=sqrt(-a); razt=ra*zt; ff=abs(razt)>=one; if(ff)return
-                                           zm=atanh(razt)/ra
-else                                     ; zm=zt
+ra=sqrt(abs(a))
+razt=ra*zt
+if    (a>zero)then; zm=atan(razt)/ra
+elseif(a<zero)then; ff=abs(razt)>=one; if(ff)return; zm=atanh(razt)/ra
+else              ; zm=zt
 endif
 end subroutine zttozm
 !=============================================================================

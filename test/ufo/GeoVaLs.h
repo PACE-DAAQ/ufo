@@ -66,8 +66,6 @@ void testGeoVaLs() {
     const oops::Variables ingeovars(gconf, "state variables");
     const GeoVaLs gval(geovalsconf, ospace, ingeovars);
 
-    const double tol = gconf.getDouble("tolerance");
-
 /// Check that GeoVaLs default constructor works
      oops::Log::trace() <<
       "GeoVaLs default constructor - does not allocate fields" << std::endl;
@@ -105,7 +103,7 @@ void testGeoVaLs() {
       gv.reorderzdir("air_pressure_levels", flipto);
       std::vector<float> gvar(nobs);
       std::vector<float> gvarref(nobs);
-      float sum;
+      float sum = 0.0f;
       for (size_t i = 0; i < ingeovars.size(); ++i) {
         size_t nlevs = gv.nlevs(ingeovars[i]);
         sum = 0;
@@ -143,6 +141,10 @@ void testGeoVaLs() {
       rms2 = 2.0 * gval.rms();
       oops::Log::debug()<< "rms1, rms2 = " <<  rms1  << "  " << rms2 << std::endl;
       EXPECT(rms1 == rms2);
+      double nrms1 = gv1.normalizedrms(gval);
+      double nrms2 = 4.0 * gval.normalizedrms(gv1);
+      oops::Log::debug() << "nrms1, nrms2 " << nrms1 << " " << nrms2 << std::endl;
+      EXPECT(nrms1 == nrms2);
     }
     oops::Log::trace() <<
       "GeoVaLs & operator *= (const std::vector<float>); test succeeded" << std::endl;

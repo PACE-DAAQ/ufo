@@ -1,5 +1,5 @@
 /*
- * (C) Copyright 2017-2018 UCAR
+ * (C) Copyright 2026 Met Office
  *
  * This software is licensed under the terms of the Apache Licence Version 2.0
  * which can be obtained at http://www.apache.org/licenses/LICENSE-2.0.
@@ -32,9 +32,12 @@ ObsRadianceRTTOVTLAD::ObsRadianceRTTOVTLAD(const ioda::ObsSpace & odb,
   const oops::ObsVariables & observed = odb.assimvariables();
   std::vector<int> channels_list = observed.channels();
 
+  // values for passed qc
+  std::vector<int> qc_passed = {QCflags::pass};
   // call Fortran setup routine
   ufo_radiancerttov_tlad_setup_f90(keyOperRadianceRTTOV_, parameters.toConfiguration(),
-                                  channels_list.size(), channels_list[0], varin_);
+                                   channels_list.size(), channels_list[0], varin_,
+                                   qc_passed.size(), qc_passed[0]);
 
   oops::Log::trace() << "ObsRadianceRTTOVTLAD constructor done" << std::endl;
 }
@@ -51,14 +54,14 @@ ObsRadianceRTTOVTLAD::~ObsRadianceRTTOVTLAD() {
 void ObsRadianceRTTOVTLAD::setTrajectory(const GeoVaLs & geovals, ObsDiagnostics & ydiags,
                                          const QCFlags_t & qc_flags) {
   ufo_radiancerttov_tlad_settraj_f90(keyOperRadianceRTTOV_, geovals.toFortran(), obsspace(),
-                                    ydiags.toFortran());
+                                     ydiags.toFortran(), qc_flags);
   oops::Log::trace() << "ObsRadianceRTTOVTLAD::setTrajectory done" << std::endl;
 }
 
 // -----------------------------------------------------------------------------
 
-void ObsRadianceRTTOVTLAD::simulateObsTL(const GeoVaLs & geovals, ioda::ObsVector & ovec,
-                                         const QCFlags_t & qc_flags) const {
+void ObsRadianceRTTOVTLAD::simulateObsTL(const GeoVaLs & geovals,
+                                         ioda::ObsVector & ovec) const {
   ufo_radiancerttov_simobs_tl_f90(keyOperRadianceRTTOV_, geovals.toFortran(), obsspace(),
                              ovec.nvars(), ovec.nlocs(), ovec.toFortran());
   oops::Log::trace() << "ObsRadianceRTTOVTLAD::simulateObsTL done" << std::endl;
@@ -66,8 +69,8 @@ void ObsRadianceRTTOVTLAD::simulateObsTL(const GeoVaLs & geovals, ioda::ObsVecto
 
 // -----------------------------------------------------------------------------
 
-void ObsRadianceRTTOVTLAD::simulateObsAD(GeoVaLs & geovals, const ioda::ObsVector & ovec,
-                                         const QCFlags_t & qc_flags) const {
+void ObsRadianceRTTOVTLAD::simulateObsAD(GeoVaLs & geovals,
+                                         const ioda::ObsVector & ovec) const {
   ufo_radiancerttov_simobs_ad_f90(keyOperRadianceRTTOV_, geovals.toFortran(), obsspace(),
                              ovec.nvars(), ovec.nlocs(), ovec.toFortran());
   oops::Log::trace() << "ObsRadianceRTTOVTLAD::simulateObsAD done" << std::endl;

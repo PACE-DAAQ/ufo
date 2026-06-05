@@ -70,6 +70,11 @@ find_package( fckit 0.11.0 REQUIRED )
 # ioda
 find_package( ioda 2.9.0 REQUIRED )
 
+# leaky inherited dependency from ioda
+# will be removed these once the ioda issue is fixed
+find_package( bufr 12.0.1 QUIET )
+find_package( bufr_query QUIET )
+
 # oops
 find_package( oops 1.10.0 REQUIRED )
 
@@ -89,13 +94,18 @@ else( ${crtm_FOUND} )
     message(STATUS "CRTM NOT FOUND; Excluding CRTM Observation Operator")
 endif( ${crtm_FOUND} )
 
-# RTTOV
-find_package( rttov 12.1.0 QUIET )
-if( ${rttov_FOUND} )
-    message(STATUS "RTTOV FOUND; Including RTTOV Radiance Observation Operator (${rttov_VERSION})")
-else( ${rttov_FOUND} )
-    message(STATUS "RTTOV NOT FOUND; Excluding RTTOV Radiance Observation Operator")
-endif( ${rttov_FOUND} )
+# RTTOV: Try v14 first, then v12
+find_package(rttov 14.0.0 QUIET)
+if(rttov_FOUND)
+    message(STATUS "RTTOV v14 FOUND; Including RTTOV v14 Radiance Observation Operator (${rttov_VERSION})")
+else()
+    find_package(rttov 12.3.0 QUIET)
+    if(rttov_FOUND)
+        message(STATUS "RTTOV v12 FOUND; Including RTTOV v12 Radiance Observation Operator (${rttov_VERSION})")
+    else()
+        message(STATUS "RTTOV NOT FOUND; Excluding RTTOV Radiance Observation Operator")
+    endif()
+endif()
 
 # GSW
 find_package( gsw QUIET )
@@ -169,7 +179,6 @@ endif( ${crtm_FOUND} )
 # Sources
 ################################################################################
 add_subdirectory( src )
-add_subdirectory( tools )
 add_subdirectory( resources )
 
 if( ENABLE_UFO_DOC )
@@ -191,11 +200,16 @@ if( BUILD_TESTING )
   # scope so that downstream repos have access to it
   set (UFO_CRTM_TESTFILES_PATH ${UFO_CRTM_TESTFILES_PATH} PARENT_SCOPE)
   set (UFO_UFO_TESTFILES_PATH ${UFO_UFO_TESTFILES_PATH} PARENT_SCOPE)
+
+  execute_process( COMMAND ${CMAKE_COMMAND} -E copy
+     ${PROJECT_SOURCE_DIR}/tools/ufo_cpplint.py
+     ${CMAKE_BINARY_DIR}/bin/ufo_cpplint.py )
   ecbuild_add_test( TARGET ufo_coding_norms
                     TYPE SCRIPT
-                    COMMAND ${CMAKE_BINARY_DIR}/bin/${PROJECT_NAME}_cpplint.py
+                    COMMAND ${CMAKE_BINARY_DIR}/bin/ufo_cpplint.py
                     ARGS --quiet --recursive ${CMAKE_CURRENT_SOURCE_DIR}/src ${CMAKE_CURRENT_SOURCE_DIR}/test
-                    WORKING_DIRECTORY ${CMAKE_BINARY_DIR}/bin )
+                    WORKING_DIRECTORY ${CMAKE_BINARY_DIR}/bin
+                    LABELS tier2 )
 endif()
 
 ## Export package

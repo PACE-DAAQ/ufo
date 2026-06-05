@@ -31,8 +31,8 @@ namespace ufo {
 SpikeAndStepCheck::SpikeAndStepCheck(
         ioda::ObsSpace & obsdb,
         const Parameters_ & parameters,
-        std::shared_ptr<ioda::ObsDataVector<int> > flags,
-        std::shared_ptr<ioda::ObsDataVector<float> > obserr)
+        ioda::ObsDataVector<int> & flags,
+        ioda::ObsDataVector<float> & obserr)
   : FilterBase(obsdb, parameters, flags, obserr), parameters_(parameters)
 {
   oops::Log::trace() << "SpikeAndStepCheck constructor" << std::endl;
@@ -105,7 +105,8 @@ void SpikeAndStepCheck::applyFilter(const std::vector<bool> & apply,
     ObsAccessor::toObservationsSplitIntoIndependentGroupsByRecordId(obsdb_);
   const size_t totalNumObs = obsAccessor.totalNumObservations();
 
-  const std::string yVarName = parameters_.yVar.value().variable();
+  const ufo::Variable yVar = parameters_.yVar.value();
+  const std::string yVarName = yVar.variable();
   const std::string xVarName = parameters_.xVar.value().variable();
   const std::vector<float> y =
     obsAccessor.getFloatVariableFromObsSpace(parameters_.yVar.value().group(),
@@ -144,7 +145,7 @@ void SpikeAndStepCheck::applyFilter(const std::vector<bool> & apply,
     //  if any filter variable fails QC):
     const std::vector<size_t> obs_indices = obsAccessor.getValidObsIdsInProfile(iProfile,
                                                                                 apply,
-                                                                                *flags_,
+                                                                                flags_,
                                                                                 filtervars,
                                                                                 false);
     // Struct of y, x, dy, dx, dy/dx:
@@ -172,8 +173,8 @@ void SpikeAndStepCheck::applyFilter(const std::vector<bool> & apply,
                                 parameters_);
   }  // for each record
   obsAccessor.flagRejectedObservations(isThinned, flagged);
-  obsdb_.put_db("DiagnosticFlags/ProfileSpike", yVarName, spikeFlag);
-  obsdb_.put_db("DiagnosticFlags/ProfileStep", yVarName, stepFlag);
+  obsdb_.put_db("DiagnosticFlags/ProfileSpike", yVarName, spikeFlag, yVar.dimList());
+  obsdb_.put_db("DiagnosticFlags/ProfileStep", yVarName, stepFlag, yVar.dimList());
   oops::Log::trace() << "SpikeAndStepCheck applyFilter complete" << std::endl;
 }
 
@@ -295,7 +296,7 @@ std::vector<float> SpikeAndStepCheck::set_tolerances(const std::vector<float> &x
       }  // while there are more tolerance sections to populate
     }  // for obs in record
   } else {  // no toleranceBoundaries given
-    for (size_t obsIndex : obs_indices) {
+    for (size_t jj = 0; jj < obs_indices.size(); ++jj) {
       tolerances.push_back(tolerance);
     }
   }  // nSections > 0 or not

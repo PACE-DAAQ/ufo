@@ -5,24 +5,33 @@
  * which can be obtained at http://www.apache.org/licenses/LICENSE-2.0.
  */
 
+#include <vector>
+
 #include "ufo/errors/ObsErrorDiagonal.h"
 
 #include "eckit/config/Configuration.h"
+#include "eckit/exception/Exceptions.h"
 
 #include "oops/util/Logger.h"
+#include "oops/util/missingValues.h"
 
 
 namespace ufo {
 
 // -----------------------------------------------------------------------------
 
-ObsErrorDiagonal::ObsErrorDiagonal(const eckit::Configuration & obsErrConf,
+static ObsErrorMaker<ObsErrorDiagonal> makerDiagUFO_("diagonal");
+
+// -----------------------------------------------------------------------------
+
+ObsErrorDiagonal::ObsErrorDiagonal(const Parameters_ & params,
                                    ioda::ObsSpace & obsgeom,
                                    const eckit::mpi::Comm &timeComm)
   : ObsErrorBase(timeComm),
-    stddev_(obsgeom, "ObsError"), inverseVariance_(obsgeom)
+    stddev_(obsgeom, "ObsError"),
+    inverseVariance_(obsgeom),
+    params_(params)
 {
-  options_.validateAndDeserialize(obsErrConf);
   inverseVariance_ = stddev_;
   inverseVariance_ *= stddev_;
   inverseVariance_.invert();
@@ -54,10 +63,55 @@ void ObsErrorDiagonal::inverseMultiply(ioda::ObsVector & dy) const {
 
 // -----------------------------------------------------------------------------
 
+void ObsErrorDiagonal::localize(ioda::ObsVector & locvector) const {
+  oops::Log::trace() << "ufo::ObsErrorDiagonal::localize start" << std::endl;
+
+  const double missing = util::missingValue<double>();
+
+  assert(locvector.size() == stddev_.size());
+  std::vector<double> localstdev;
+  std::vector<double> localinvvar;
+  for (size_t jj = 0; jj < locvector.size(); ++jj) {
+    if (locvector[jj] != missing && locvector[jj] <= 0) {
+      throw eckit::BadValue("Localization weights must be positive. Use "
+                            "oops::util::missingValue<double>() to indicate "
+                            "an observation with a weight of zero.");
+    }
+    if (locvector[jj] != missing && stddev_[jj] != missing) {
+      localstdev.push_back(stddev_[jj] * std::pow(locvector[jj], -0.5));
+      localinvvar.push_back(locvector[jj] * std::pow(stddev_[jj], -2.0));
+    }
+  }
+  local_stddev_ = Eigen::Map<Eigen::VectorXd>(localstdev.data(), localstdev.size());
+  local_inverseVariance_ =
+    Eigen::Map<Eigen::VectorXd>(localinvvar.data(), localinvvar.size());
+}
+
+// -----------------------------------------------------------------------------
+
+Eigen::MatrixXf ObsErrorDiagonal::localInverseMultiply(const Eigen::MatrixXf & zz) const {
+  Eigen::MatrixXf zzRinv(zz.rows(), zz.cols());
+  for (int ii = 0; ii < zz.rows(); ++ii) {
+    zzRinv(ii, Eigen::placeholders::all) = zz(ii, Eigen::placeholders::all)
+                                 .cwiseProduct(local_inverseVariance_.cast<float>().transpose());
+  }
+  return zzRinv;
+}
+
+// -----------------------------------------------------------------------------
+
+int ObsErrorDiagonal::localDim() const {
+  return local_inverseVariance_.size();
+}
+
+// -----------------------------------------------------------------------------
+
 void ObsErrorDiagonal::randomize(ioda::ObsVector & dy) const {
-  dy.random();
-  dy *= stddev_;
-  dy *= options_.zeroMeanPerturbations;
+  if (params_.zeroMeanPerturbations.value()) {
+    randomizeWithZeroEnsembleMean(dy);
+  } else {
+    randomizeWithoutZeroEnsembleMean(dy);
+  }
 }
 
 // -----------------------------------------------------------------------------
@@ -86,5 +140,36 @@ void ObsErrorDiagonal::print(std::ostream & os) const {
 
 // -----------------------------------------------------------------------------
 
+void ObsErrorDiagonal::randomizeWithoutZeroEnsembleMean(ioda::ObsVector & dy) const {
+  dy.random();
+  dy *= this->stddev_;
+  dy *= params_.pert.value();
+}
 
+// -----------------------------------------------------------------------------
+
+void ObsErrorDiagonal::randomizeWithZeroEnsembleMean(ioda::ObsVector & dy) const {
+  ioda::ObsVector perturbation(dy);
+  ioda::ObsVector sum(dy);
+  sum.zero();
+
+  // Generate initial independent perturbations for all ensemble members.
+  // Calculate their sum and store this member's perturbations in 'dy'.
+  for (int member = 1; member <= params_.numberOfMembers.value().value(); ++member) {
+    perturbation.random();
+    sum += perturbation;
+    if (member == params_.member.value().value())
+      dy = perturbation;
+  }
+
+  // Subtract the ensemble mean of perturbations from this member's perturbations.
+  dy.axpy(-1.0 / params_.numberOfMembers.value().value(), sum);
+
+  // Scale perturbations to the requested amplitude.
+  dy *= stddev_;
+  dy *= std::sqrt(params_.numberOfMembers.value().value() /
+                 (params_.numberOfMembers.value().value() - 1.0)) * params_.pert.value();
+}
+
+// -----------------------------------------------------------------------------
 }  // namespace ufo

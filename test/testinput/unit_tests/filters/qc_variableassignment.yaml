@@ -815,35 +815,37 @@ observations:
         name: MetaData/string_variable_1
   expectExceptionWithMessage: MetaData/string_variable_1 is not a numeric variable
 
-- obs space: &ObsSpace
-    <<: *ObsSpace
-    name: Try to copy a float variable into a string variable
-  obs filters:
-  - filter: Variable Assignment
-    assignments:
-    - name: MetaData/string_variable_1
-      source variable:
-        name: MetaData/float_variable_1
-  # Unfortunately in this case ioda throws a nested exception; the message attached to the
-  # innermost exception is fairly clear (Requested data type not equal to storage datatype),
-  # but the EXPECT_THROWS_MSG() macro sees only the outermost exception message, which is
-  # rather generic and only includes the code location where the exception was thrown.
-  expectExceptionWithMessage: source_column
-
-- obs space: &ObsSpace
-    <<: *ObsSpace
-    name: Try to copy a float variable into a datetime variable
-  obs filters:
-  - filter: Variable Assignment
-    assignments:
-    - name: MetaData/dateTime
-      source variable:
-        name: MetaData/float_variable_1
-  # Unfortunately in this case ioda throws a nested exception; the message attached to the
-  # innermost exception is fairly clear (Requested data type not equal to storage datatype),
-  # but the EXPECT_THROWS_MSG() macro sees only the outermost exception message, which is
-  # rather generic and only includes the code location where the exception was thrown.
-  expectExceptionWithMessage: Reason
+# The following two tests have been removed because the HDF5 error causes a significant increase
+# in the ctest runtime.
+#- obs space: &ObsSpace
+#    <<: *ObsSpace
+#    name: Try to copy a float variable into a string variable
+#  obs filters:
+#  - filter: Variable Assignment
+#    assignments:
+#    - name: MetaData/string_variable_1
+#      source variable:
+#        name: MetaData/float_variable_1
+#  # Unfortunately in this case ioda throws a nested exception; the message attached to the
+#  # innermost exception is fairly clear (Requested data type not equal to storage datatype),
+#  # but the EXPECT_THROWS_MSG() macro sees only the outermost exception message, which is
+#  # rather generic and only includes the code location where the exception was thrown.
+#  expectExceptionWithMessage: source_column
+#
+#- obs space: &ObsSpace
+#    <<: *ObsSpace
+#    name: Try to copy a float variable into a datetime variable
+#  obs filters:
+#  - filter: Variable Assignment
+#    assignments:
+#    - name: MetaData/dateTime
+#      source variable:
+#        name: MetaData/float_variable_1
+#  # Unfortunately in this case ioda throws a nested exception; the message attached to the
+#  # innermost exception is fairly clear (Requested data type not equal to storage datatype),
+#  # but the EXPECT_THROWS_MSG() macro sees only the outermost exception message, which is
+#  # rather generic and only includes the code location where the exception was thrown.
+#  expectExceptionWithMessage: Reason
 
 - obs space:
     <<: *ObsSpace
@@ -1089,6 +1091,63 @@ observations:
       name: MetaData/datetime_as_float
     reference:
       name: TestReference/assigned_float_variable_8
+
+- obs space:
+    <<: *ObsSpace
+    name: Check variable assignment updates QC flags - float variable
+    derived variables: [myFloat]
+    simulated variables: [myFloat]
+  obs filters:
+  - filter: Variable Assignment
+    assignments:
+    - name: DerivedObsValue/myFloat
+      value: 1.0
+      type: int
+  - filter: Perform Action
+    filter variables:
+    - name: DerivedObsValue/myFloat
+    action:
+      name: assign error # needed to stop finalcheck assigning missing to myFloat
+      error parameter: 1.0 # arbitrary
+  passedBenchmark: 5  # myFloat should be valid for all 5 observations
+
+- obs space:
+    <<: *ObsSpace
+    name: Check variable assignment updates QC flags - integer variable
+    derived variables: [myInt]
+    simulated variables: [myInt]
+  obs filters:
+  - filter: Variable Assignment
+    assignments:
+    - name: DerivedObsValue/myInt
+      value: 1
+      type: int
+  - filter: Perform Action
+    filter variables:
+    - name: DerivedObsValue/myInt
+    action:
+      name: assign error # needed to stop finalcheck assigning missing to myInt
+      error parameter: 1.0 # arbitrary
+  passedBenchmark: 5  # myInt should be valid for all 5 observations
+
+- obs space:
+    <<: *ObsSpace
+    name: Check variable assignment updates QC flags - datetime variable
+    derived variables: [myDateTime]
+    simulated variables: [myDateTime]
+  obs filters:
+  - filter: Variable Assignment
+    assignments:
+    - name: DerivedObsValue/myDateTime
+      source variable: MetaData/dateTime
+      type: datetime
+  - filter: Perform Action
+    filter variables:
+    - name: DerivedObsValue/myDateTime
+    action:
+      name: assign error # needed to stop finalcheck assigning missing to myDateTime
+      error parameter: 1.0 # arbitrary
+  passedBenchmark: 5  # myDateTime should be valid for all 5 observations
 
 - obs space:
     <<: *ObsSpace

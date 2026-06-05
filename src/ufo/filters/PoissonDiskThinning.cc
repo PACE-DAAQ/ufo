@@ -166,8 +166,8 @@ struct PoissonDiskThinning::ObsData
 
 PoissonDiskThinning::PoissonDiskThinning(ioda::ObsSpace & obsdb,
                                          const Parameters_ &parameters,
-                                         std::shared_ptr<ioda::ObsDataVector<int> > flags,
-                                         std::shared_ptr<ioda::ObsDataVector<float> > obserr)
+                                         ioda::ObsDataVector<int> & flags,
+                                         ioda::ObsDataVector<float> & obserr)
   : FilterBase(obsdb, parameters, flags, obserr), options_(parameters) {
   oops::Log::trace() << "PoissonDiskThinning constructor" << std::endl;
   oops::Log::debug() << "PoissonDiskThinning: config = " << options_ << std::endl;
@@ -298,7 +298,8 @@ void PoissonDiskThinning::applyFilter(const std::vector<bool> & apply,
         localObs[localObsId] = obsForMedian[globalObsId];
       }
     }
-    obsdb_.put_db("DerivedObsValue", filtervars_.variable(0).variable(), localObs);
+    obsdb_.put_db("DerivedObsValue", filtervars_.variable(0).variable(), localObs,
+                  filtervars_.variable(0).dimList());
   }
   oops::Log::trace() << "PoissonDiskThinning applyFilter complete" << std::endl;
 }
@@ -413,7 +414,7 @@ std::vector<size_t> PoissonDiskThinning::getValidObservationIds(
     const std::vector<bool> & apply,
     const Variables & filtervars,
     const ObsAccessor &obsAccessor) const {
-  std::vector<size_t> validObsIds = obsAccessor.getValidObservationIds(apply, *flags_, filtervars);
+  std::vector<size_t> validObsIds = obsAccessor.getValidObservationIds(apply, flags_, filtervars);
 
   if (!options_.shuffle) {
     // The user wants to process observations in fixed (non-random) order. Ensure the filter
@@ -463,14 +464,10 @@ void PoissonDiskThinning::groupObservationsByPriority(
                                            priorityVariable.get().variable(),
                                            apply);
 
-  auto reverse = [](int i) {
-      return -i - std::numeric_limits<int>::lowest() + std::numeric_limits<int>::max();
-  };
-
   std::vector<int> validObsPriorities(validObsIds.size());
   for (size_t validObsIndex = 0; validObsIndex < validObsIds.size(); ++validObsIndex)
     // reversing because we want to start with the highest-priority items
-    validObsPriorities[validObsIndex] = reverse(priority[validObsIds[validObsIndex]]);
+    validObsPriorities[validObsIndex] = priority[validObsIds[validObsIndex]] * -1;
   splitter.groupBy(validObsPriorities);
 }
 
@@ -721,17 +718,17 @@ void PoissonDiskThinning::thinCategoryMedian(const ObsData &obsData,
 template <int numDims>
 std::array<float, numDims> PoissonDiskThinning::getObservationPosition(
     size_t obsId, const ObsData &obsData) const {
-  std::array<float, numDims> position;
+  std::array<float, numDims> position = {util::missingValue<float>()};
 
   unsigned int dim = 0;
 
   if (obsData.latitudes && obsData.longitudes) {
     if (obsData.minLatitudeSpacings && obsData.minLongitudeSpacings) {
-      position[dim++] = (*obsData.latitudes)[obsId];
-      position[dim++] = (*obsData.longitudes)[obsId];
+      position.at(dim++) = (*obsData.latitudes)[obsId];
+      position.at(dim++) = (*obsData.longitudes)[obsId];
     } else {
       const float deg2rad = static_cast<float>(M_PI / 180.0);
-      const float earthRadius = Constants::mean_earth_rad;
+      const float earthRadius = static_cast<float>(Constants::mean_earth_rad_m / 1000.0);
 
       const float lon = deg2rad * (*obsData.longitudes)[obsId];
       const float lat = deg2rad * (*obsData.latitudes)[obsId];
@@ -740,20 +737,20 @@ std::array<float, numDims> PoissonDiskThinning::getObservationPosition(
       const float sinLon = std::sin(lon);
       const float cosLon = std::cos(lon);
 
-      position[dim++] = earthRadius * cosLat * cosLon;
-      position[dim++] = earthRadius * cosLat * sinLon;
-      position[dim++] = earthRadius * sinLat;
+      position.at(dim++) = earthRadius * cosLat * cosLon;
+      position.at(dim++) = earthRadius * cosLat * sinLon;
+      position.at(dim++) = earthRadius * sinLat;
     }
   }
 
   if (obsData.pressures) {
-    position[dim++] = (*obsData.pressures)[obsId];
+    position.at(dim++) = (*obsData.pressures)[obsId];
   }
 
   if (obsData.times) {
     // We use the centre of the assimilation window as the reference time when converting
     // datetimes to floats.
-    position[dim++] = ((*obsData.times)[obsId] - obsdb_.timeWindow().midpoint()).toSeconds();
+    position.at(dim++) = ((*obsData.times)[obsId] - obsdb_.timeWindow().midpoint()).toSeconds();
   }
 
   return position;
@@ -763,34 +760,34 @@ template <int numDims>
 std::array<float, numDims> PoissonDiskThinning::getExclusionVolumeSemiAxes(
     size_t obsId, const ObsData &obsData) const {
 
-  std::array<float, numDims> semiAxes;
+  std::array<float, numDims> semiAxes = {util::missingValue<float>()};
 
   const int priority = obsData.priorities == boost::none ? 0 : (*obsData.priorities)[obsId];
 
   unsigned int dim = 0;
 
   if (obsData.minHorizontalSpacings) {
-    const float earthDiameter = 2 * Constants::mean_earth_rad;
+    const float earthDiameter = static_cast<float>(2 * Constants::mean_earth_rad_m / 1000.0);
     const float invEarthDiameter = 1 / earthDiameter;
 
     const float minGeodesicDistance = obsData.minHorizontalSpacings->at(priority);
     const float minEuclideanDistance =
         earthDiameter * std::sin(minGeodesicDistance * invEarthDiameter);
 
-    semiAxes[dim++] = minEuclideanDistance;
-    semiAxes[dim++] = minEuclideanDistance;
-    semiAxes[dim++] = minEuclideanDistance;
+    semiAxes.at(dim++) = minEuclideanDistance;
+    semiAxes.at(dim++) = minEuclideanDistance;
+    semiAxes.at(dim++) = minEuclideanDistance;
   } else if (obsData.minLatitudeSpacings && obsData.minLongitudeSpacings) {
-    semiAxes[dim++] = obsData.minLatitudeSpacings->at(priority);
-    semiAxes[dim++] = obsData.minLongitudeSpacings->at(priority);
+    semiAxes.at(dim++) = obsData.minLatitudeSpacings->at(priority);
+    semiAxes.at(dim++) = obsData.minLongitudeSpacings->at(priority);
   }
 
   if (obsData.minVerticalSpacings) {
-    semiAxes[dim++] = obsData.minVerticalSpacings->at(priority);
+    semiAxes.at(dim++) = obsData.minVerticalSpacings->at(priority);
   }
 
   if (obsData.minTimeSpacings) {
-    semiAxes[dim++] = obsData.minTimeSpacings->at(priority).toSeconds();
+    semiAxes.at(dim++) = obsData.minTimeSpacings->at(priority).toSeconds();
   }
 
   return semiAxes;

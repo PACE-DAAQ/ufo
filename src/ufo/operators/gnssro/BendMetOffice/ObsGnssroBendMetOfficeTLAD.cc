@@ -48,7 +48,9 @@ ObsGnssroBendMetOfficeTLAD::ObsGnssroBendMetOfficeTLAD(const ioda::ObsSpace & od
                                           parameters.minTempGrad,
                                           channels.size(),
                                           channels[0],
-                                          parameters.noSuperCheck);
+                                          parameters.noSuperCheck,
+                                          parameters.dryRefractivityConstant,
+                                          parameters.wetRefractivityConstant);
 
   oops::Log::trace() << "ObsGnssroBendMetOfficeTLAD constructor done" << std::endl;
 }
@@ -72,7 +74,7 @@ void ObsGnssroBendMetOfficeTLAD::setTrajectory(const GeoVaLs & geovals, ObsDiagn
 // -----------------------------------------------------------------------------
 
 void ObsGnssroBendMetOfficeTLAD::simulateObsTL(
-        const GeoVaLs & geovals, ioda::ObsVector & ovec, const QCFlags_t & qc_flags) const {
+        const GeoVaLs & geovals, ioda::ObsVector & ovec) const {
   ufo_gnssro_bendmetoffice_simobs_tl_f90(keyOperGnssroBendMetOffice_, geovals.toFortran(),
                                          obsspace(), ovec.size(), ovec.toFortran());
   oops::Log::trace() << "ObsGnssroBendMetOfficeTLAD::simulateObsTL done" <<  std::endl;
@@ -81,7 +83,7 @@ void ObsGnssroBendMetOfficeTLAD::simulateObsTL(
 // -----------------------------------------------------------------------------
 
 void ObsGnssroBendMetOfficeTLAD::simulateObsAD(
-        GeoVaLs & geovals, const ioda::ObsVector & ovec, const QCFlags_t & qc_flags) const {
+        GeoVaLs & geovals, const ioda::ObsVector & ovec) const {
   ufo_gnssro_bendmetoffice_simobs_ad_f90(keyOperGnssroBendMetOffice_, geovals.toFortran(),
                                          obsspace(), ovec.size(), ovec.toFortran());
   oops::Log::trace() << "ObsGnssroBendMetOfficeTLAD::simulateObsAD done" <<  std::endl;

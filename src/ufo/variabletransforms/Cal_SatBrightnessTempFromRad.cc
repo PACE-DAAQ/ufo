@@ -25,8 +25,8 @@ static TransformMaker<Cal_SatBrightnessTempFromRad>
 Cal_SatBrightnessTempFromRad::Cal_SatBrightnessTempFromRad(
     const Parameters_ &options,
     const ObsFilterData &data,
-    const std::shared_ptr<ioda::ObsDataVector<int>> &flags,
-    const std::shared_ptr<ioda::ObsDataVector<float>> &obserr)
+    ioda::ObsDataVector<int> &flags,
+    ioda::ObsDataVector<float> &obserr)
     : TransformBase(options, data, flags, obserr), parameters_(options),
       variables_(), channels_(parameters_.transformVariable.value().channels()) {
   variables_ += parameters_.transformVariable.value();
@@ -60,8 +60,8 @@ void Cal_SatBrightnessTempFromRad::runTransform(const std::vector<bool> &apply) 
   // If no locations to process, add to obs space and return
   if (nlocs == 0) {
     for (size_t ichan = 0; ichan < nvars; ++ichan) {
-      putObservation("brightnessTemperature_" + std::to_string(channels_[ichan]),
-                     brightnessTemperature[ichan]);
+      putObservation("brightnessTemperature", std::to_string(channels_[ichan]),
+                     brightnessTemperature[ichan], radianceVar.dimList());
     }
     return;
   }
@@ -117,7 +117,7 @@ void Cal_SatBrightnessTempFromRad::runTransform(const std::vector<bool> &apply) 
             }
             case RadianceUnits::FREQUENCY: {
               double freq = static_cast<double>(spectralVariable[ichan]);
-              double wvn = freq / Constants::speedOfLight;  // Hz to m-1
+              double wvn = freq / Constants::speed_of_light;  // Hz to m-1
               double rad = static_cast<double>(radiance[ichan][iloc]) * freq / wvn;
               bt = formulas::inversePlanck(rad, wvn, parameters_.planck1.value(),
                                            parameters_.planck2.value());
@@ -146,8 +146,8 @@ void Cal_SatBrightnessTempFromRad::runTransform(const std::vector<bool> &apply) 
 
   //  Write out the resulting data to Derived group and update qcflags
   for (size_t ichan =0; ichan < nvars; ++ichan) {
-    putObservation("brightnessTemperature_" + std::to_string(channels_[ichan]),
-                   brightnessTemperature[ichan]);
+    putObservation("brightnessTemperature", std::to_string(channels_[ichan]),
+                   brightnessTemperature[ichan], radianceVar.dimList());
   }
 }  // runTransform
 }  // namespace ufo

@@ -23,8 +23,8 @@ namespace ufo {
 // -----------------------------------------------------------------------------
 ProbabilityGrossErrorWholeReport::ProbabilityGrossErrorWholeReport(ioda::ObsSpace & obsdb,
                                  const Parameters_ & parameters,
-                                 std::shared_ptr<ioda::ObsDataVector<int> > flags,
-                                 std::shared_ptr<ioda::ObsDataVector<float> > obserr)
+                                 ioda::ObsDataVector<int> & flags,
+                                 ioda::ObsDataVector<float> & obserr)
   : FilterBase(obsdb, parameters, flags, obserr),
     parameters_(parameters)
 {
@@ -43,15 +43,11 @@ void ProbabilityGrossErrorWholeReport::applyFilter(const std::vector<bool> & app
                                   const Variables & filtervars,
                                   std::vector<std::vector<bool>> & flagged) const {
   oops::Log::trace() << "ProbabilityGrossErrorWholeReport applyFilter start" << std::endl;
-  // Missing value indicator
-  const float missingValueFloat = util::missingValue<float>();
   // Dimensions
   const size_t nlocs = obsdb_.nlocs();
   const size_t nvars = filtervars.nvars();
   // Missing data indicator for stored PGEs.
   const float PGEMDI = 1.111f;
-  // PGE multiplication factor used to store PGE values for later use.
-  const float PGEMult = 1000.0;
   // PGE rejection limit.
   const float PGECrit = parameters_.PGEParameters.PGE_PGECrit.value();
 
@@ -206,9 +202,10 @@ void ProbabilityGrossErrorWholeReport::applyFilter(const std::vector<bool> & app
       }
     }
     // Save updated gross error probabilities and diagnostic flags to ObsSpace
-    obsdb_.put_db("GrossErrorProbability", varname[ivar], varPGE[ivar]);
+    obsdb_.put_db("GrossErrorProbability", varname[ivar], varPGE[ivar],
+                  filtervars.variable(ivar).dimList());
     obsdb_.put_db("DiagnosticFlags/BackgroundCheckRejection", varname[ivar],
-                  diagFlagsBackReject[ivar]);
+                  diagFlagsBackReject[ivar], filtervars.variable(ivar).dimList());
   }
   obsdb_.put_db("MetaData", "grossErrorProbabilityReport", ReportPGE);
   oops::Log::trace() << "ProbabilityGrossErrorWholeReport applyFilter complete" << std::endl;

@@ -20,7 +20,6 @@ use ufo_vars_mod
 use ufo_ghg_utils_mod, only: co2_mauna_loa_rise
 use obsspace_mod
 use ufo_constants_mod, only: kg_to_g, co2_rescale_to_ppmv, co2_ppmv_value, midpoint_julday
-use ufo_utils_mod, only: cmp_strings
 use CRTM_SpcCoeff, only: CRTM_SpcCoeff_Load, SC
 
 implicit none
@@ -103,6 +102,8 @@ type crtm_conf
  logical :: cal_cloud_reff_in_fov  = .false.
  logical :: precip_hydro = .false.
  logical :: flag_deep_conv_mass_flux = .true.
+ logical :: read_Cmatrix = .false.
+ character(len=max_string) :: Cmatrix_path
 end type crtm_conf
 
 
@@ -259,6 +260,8 @@ character(*), parameter :: routine_name = 'crtm_conf_setup'
 character(len=255) :: IRwaterCoeff, VISwaterCoeff, &
                       IRVISlandCoeff, IRVISsnowCoeff, IRVISiceCoeff, &
                       MWwaterCoeff
+! To save the value read from yaml, since Cloud_Fraction is derived from Obs Opearator and used for Linear Obs Operator too.
+real(kind_real) :: cloudFraction = -1.0_kind_real
 integer :: jspec, ivar
 character(len=max_string) :: message
 character(len=:), allocatable :: str
@@ -333,15 +336,15 @@ character(max_string) :: cloud_reff_method
    if (f_confOper%has("method for cloud fraction within fov")) then
      call f_confOper%get_or_die("method for cloud fraction within fov",str)
      cloud_fract_method = str
-     if (cmp_strings(cloud_fract_method,'thompson') .or. &
-             cmp_strings(cloud_fract_method,'Thompson')) then
+     if (cloud_fract_method == 'thompson' .or. &
+             cloud_fract_method == 'Thompson') then
        conf%cal_cloud_frac_in_fov = .true.
        !  Get scale-aware mass-flux deep conv scheme flag used in calculating
        !  cloud fraction by the Thompson method
        if (f_confOper%has("convection_mass_flux_flag")) then
          call f_confOper%get_or_die("convection_mass_flux_flag",conf%flag_deep_conv_mass_flux)
        end if
-     else if (.not. cmp_strings(cloud_fract_method,'none')) then
+     else if (cloud_fract_method /= 'none') then
        write(message,*) trim(ROUTINE_NAME),' error: ' // &
                         ' "method for cloud fraction within fov"' // &
                         ' can only be "thompson", "Thompson", or "none".'
@@ -351,10 +354,10 @@ character(max_string) :: cloud_reff_method
    if (f_confOper%has("method for hydrometeor effective radii within fov")) then
      call f_confOper%get_or_die("method for hydrometeor effective radii within fov",str)
      cloud_reff_method = str
-     if (cmp_strings(cloud_reff_method,'thompson') .or. &
-             cmp_strings(cloud_reff_method,'Thompson')) then
+     if (cloud_reff_method == 'thompson' .or. &
+             cloud_reff_method == 'Thompson') then
        conf%cal_cloud_reff_in_fov = .true.
-     else if (.not. cmp_strings(cloud_reff_method,'none')) then
+     else if (cloud_reff_method /= 'none') then
        write(message,*) trim(ROUTINE_NAME),' error: ' // &
                         ' "method for hydrometeor effective radii within fov"' // &
                         ' can only be "thompson", "Thompson", or "none".'
@@ -371,6 +374,7 @@ character(max_string) :: cloud_reff_method
        if (message_flag) CALL Display_Message(ROUTINE_NAME, TRIM(message), WARNING )
      else
        call f_confOper%get_or_die("Cloud_Fraction",conf%Cloud_Fraction)
+       cloudFraction = conf%Cloud_Fraction ! saving from Yaml file to be used for linear-obs-operator
        if ( conf%Cloud_Fraction < 0.0 .or. &
             conf%Cloud_Fraction > 1.0 ) then
          write(message,*) trim(ROUTINE_NAME),' error: must specify ' // &
@@ -381,7 +385,8 @@ character(max_string) :: cloud_reff_method
        end if
      end if
    else
-     if (.not. conf%cal_cloud_frac_in_fov .and. conf%n_Clouds > 0) then
+     ! If Cloud_Fraction is not provided as parameter in Obs Operator then provide warning
+     if (.not. conf%cal_cloud_frac_in_fov .and. conf%n_Clouds > 0 .and. cloudFraction <= 0.0) then
        message = trim(ROUTINE_NAME) // &
                ': Cloud_Fraction is not provided in conf.' // &
                ' Will request as a geoval.'
@@ -674,7 +679,17 @@ character(max_string) :: cloud_reff_method
  if (f_confOpts%has("InspectProfileNumber")) then
    call f_confOpts%get_or_die("InspectProfileNumber",conf%inspect)
  endif
+ ! reconstruction operator cmatrix path 
 
+ conf % read_Cmatrix = .false.
+ if (f_confOpts % has("ReconstructedRadianceCorrection")) then
+    call f_confOpts % get_or_die("ReconstructedRadianceCorrection", conf % read_Cmatrix)
+ end if
+
+ if (conf % read_Cmatrix) then
+    call f_confOpts % get_or_die("CMatrixPath", str)
+    conf % Cmatrix_path = trim(str)
+ end if
 end subroutine crtm_conf_setup
 
 ! -----------------------------------------------------------------------------
@@ -928,9 +943,9 @@ integer  :: id_cld(1)
 
   do jspec = 1, conf%n_Absorbers
     ! O3 Absorber has special treatment for Aerosols
-    if (cmp_strings(conf%Absorbers(jspec), var_oz) .AND. &
+    if (conf%Absorbers(jspec) == var_oz .AND. &
       ufo_vars_getindex(geovals%variables, var_oz) < 0 .AND. &
-      (.NOT. cmp_strings(conf%aerosol_option,""))) then
+      (conf%aerosol_option /= "")) then
       do k1 = 1, n_Profiles
         atm(k1)%Absorber(1:n_Layers, jspec) = ozone_default_value
       end do
@@ -957,7 +972,7 @@ integer  :: id_cld(1)
       end select
     else
       geoval_unit_rescale = one
-      if (cmp_strings(conf%Absorbers(jspec), var_mixr)) then
+      if (conf%Absorbers(jspec) == var_mixr) then
         ! NOTE if "water_vapor_mixing_ratio_wrt_dry_air", convert from JEDI's kg/kg to CRTM's g/kg
         geoval_unit_rescale = kg_to_g
       end if
@@ -1420,7 +1435,7 @@ real(kind_real), allocatable :: ObsTb(:,:)
   end do
 
   !Sea_Surface_Salinity
-  if (cmp_strings(conf%salinity_option, "on")) THEN
+  if (conf%salinity_option == "on") THEN
     call ufo_geovals_get_var(geovals, var_sfc_sss, geoval)
     do k1 = 1, n_Profiles
       sfc(k1)%Salinity = geoval%vals(1, k1)
@@ -1499,7 +1514,7 @@ integer :: nlocs
 
  ! Read geophysical values for gmi high frequency channels 10-13.
  if (present(sensor_id)) then
-   if (cmp_strings(trim(sensor_id),'gmi_gpm')) then
+   if (sensor_id == 'gmi_gpm') then
     if ( present(geo_hf) ) then
       geo_hf = geo
       if (obsspace_has(obss, "MetaData", "sensorZenithAngle1")) then
@@ -1530,6 +1545,12 @@ integer :: nlocs
       where (geo_hf(:)%Sensor_Azimuth_Angle < 0.0_kind_real .or. &
             geo_hf(:)%Sensor_Azimuth_Angle > 360.0_kind_real) &
         geo_hf(:)%Sensor_Azimuth_Angle = 0.0_kind_real
+      where (geo_hf(:)%Sensor_Zenith_Angle > 80.0_kind_real) &
+        geo_hf(:)%Sensor_Zenith_Angle = 80.0_kind_real
+      where (abs(geo_hf(:)%Source_Zenith_Angle) > 180.0_kind_real) &
+        geo_hf(:)%Source_Zenith_Angle = 100.0_kind_real
+      where (abs(geo_hf(:)%Sensor_Scan_Angle) > 80.0_kind_real) &
+        geo_hf(:)%Sensor_Scan_Angle = 0.0_kind_real
     endif
   endif
  endif
@@ -1641,16 +1662,16 @@ end function uv_to_wdir
 
     CHARACTER(max_string) :: err_msg
 
-    IF (cmp_strings(aerosol_option,"aerosols_gocart_default")) THEN
+    IF (aerosol_option == "aerosols_gocart_default") THEN
        ALLOCATE(var_aerosols(n_aerosols_gocart_default))
        var_aerosols=var_aerosols_gocart_default
-    ELSEIF (cmp_strings(aerosol_option,"aerosols_gocart_gefs")) THEN
+    ELSEIF (aerosol_option == "aerosols_gocart_gefs") THEN
        ALLOCATE(var_aerosols(n_aerosols_gocart_gefs))
        var_aerosols=var_aerosols_gocart_gefs
-    ELSEIF (cmp_strings(aerosol_option,"aerosols_gocart_ufs")) THEN
+    ELSEIF (aerosol_option == "aerosols_gocart_ufs") THEN
        ALLOCATE(var_aerosols(n_aerosols_gocart_ufs))
        var_aerosols=var_aerosols_gocart_ufs
-    ELSEIF (cmp_strings(aerosol_option,"aerosols_gocart_geos")) THEN
+    ELSEIF (aerosol_option == "aerosols_gocart_geos") THEN
        ALLOCATE(var_aerosols(n_aerosols_gocart_geos))
        var_aerosols=var_aerosols_gocart_geos
     ELSEIF (cmp_strings(aerosol_option,"aerosols_gocart2g_mpas")) THEN
@@ -1710,7 +1731,7 @@ end function uv_to_wdir
                &aerosol_concentration_minvalue_layer)
 
 
-          IF (cmp_strings(TRIM(aerosol_model), "CRTM")) THEN
+          IF (aerosol_model == "CRTM") THEN
 
             !Indices for CRTM default LUT
             !DUST_AEROSOL = 1
@@ -1784,7 +1805,7 @@ end function uv_to_wdir
             END SELECT
 
 
-         ELSEIF (cmp_strings(TRIM(aerosol_model), "GOCART-GEOS5")) THEN
+         ELSEIF (aerosol_model == "GOCART-GEOS5") THEN
 
             ! This is for the NASA GOCART tables, aerosol scheme GOCART-GEOS5 in CRTM
             ! Reff are bin effective radius from NASA tables
@@ -1870,7 +1891,7 @@ end function uv_to_wdir
                atm(m)%aerosol(i)%TYPE  = -1
             END SELECT
 
-          ELSEIF (cmp_strings(trim(aerosol_model), "CMAQ")) THEN
+          ELSEIF (aerosol_model == "CMAQ") THEN
             ! Aerosol scheme CMAQ in CRTM
             ! CMAQ table:
             ! Dust - 1
@@ -1972,7 +1993,7 @@ end function uv_to_wdir
 
             END SELECT
 
-          ELSEIF (cmp_strings(TRIM(aerosol_model), "NAAPS")) THEN
+          ELSEIF (aerosol_model == "NAAPS") THEN
             ! This is for the NRL NAAPS tables, aerosol scheme NAAPS in CRTM
             ! Similar to GOCART-GEOS5 LUT, no Reff needs to be assigned
             ! NAAPS table is recommended for AOD calculation only due to
@@ -2165,7 +2186,7 @@ end function uv_to_wdir
      INTEGER i
      getindex=-1
      DO i=1,SIZE(names)
-        IF(cmp_strings(usrname, names(i))) THEN
+        IF(usrname == names(i)) THEN
            getindex=i
            EXIT
         ENDIF

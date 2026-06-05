@@ -19,8 +19,8 @@ static TransformMaker<Cal_RelativeHumidity>
 Cal_RelativeHumidity::Cal_RelativeHumidity(
     const Parameters_ &options,
     const ObsFilterData &data,
-    const std::shared_ptr<ioda::ObsDataVector<int>> &flags,
-    const std::shared_ptr<ioda::ObsDataVector<float>> &obserr)
+    ioda::ObsDataVector<int> &flags,
+    ioda::ObsDataVector<float> &obserr)
   : TransformBase(options, data, flags, obserr),
       allowSuperSaturation_(options.AllowSuperSaturation),
       specifichumidityvariable_(options.SpecificHumidityVariable),
@@ -427,8 +427,8 @@ static TransformMaker<Cal_SpecificHumidity>
 Cal_SpecificHumidity::Cal_SpecificHumidity(
     const Parameters_ &options,
     const ObsFilterData &data,
-    const std::shared_ptr<ioda::ObsDataVector<int>> &flags,
-    const std::shared_ptr<ioda::ObsDataVector<float>> &obserr)
+    ioda::ObsDataVector<int> &flags,
+    ioda::ObsDataVector<float> &obserr)
     : TransformBase(options, data, flags, obserr),
       specifichumidityvariable_(options.SpecificHumidityVariable),
       pressurevariable_(options.PressureVariable),
@@ -547,7 +547,7 @@ void Cal_SpecificHumidity::methodQSat(
 /************************************************************************************/
 
 void Cal_SpecificHumidity::methodDEFAULT(
-    const std::vector<bool> &,
+    const std::vector<bool> &apply,
     formulas::Formulation SatVaporPres_fromTemp_form) {
 
   const size_t nlocs = obsdb_.nlocs();
@@ -613,6 +613,8 @@ void Cal_SpecificHumidity::methodDEFAULT(
 
   if (have_dewpoint) {
     for (size_t jobs = 0; jobs < nlocs; ++jobs) {
+      // if the data have been excluded by the where statement
+      if (!apply[jobs]) continue;
       if (pressure[jobs] != missingValueFloat && dewPointTemperature[jobs] != missingValueFloat) {
         satVaporPres = formulas::SatVaporPres_fromTemp(
             dewPointTemperature[jobs], SatVaporPres_fromTemp_form);
@@ -623,6 +625,8 @@ void Cal_SpecificHumidity::methodDEFAULT(
     }
   } else {
     for (size_t jobs = 0; jobs < nlocs; ++jobs) {
+      // if the data have been excluded by the where statement
+      if (!apply[jobs]) continue;
       if (pressure[jobs] != missingValueFloat && airTemperature[jobs] != missingValueFloat &&
                 relativeHumidity[jobs] != missingValueFloat) {
         satVaporPres = formulas::SatVaporPres_fromTemp(
@@ -647,8 +651,8 @@ static TransformMaker<Cal_VirtualTemperature>
 Cal_VirtualTemperature::Cal_VirtualTemperature(
     const Parameters_ &options,
     const ObsFilterData &data,
-    const std::shared_ptr<ioda::ObsDataVector<int>> &flags,
-    const std::shared_ptr<ioda::ObsDataVector<float>> &obserr)
+    ioda::ObsDataVector<int> &flags,
+    ioda::ObsDataVector<float> &obserr)
   : TransformBase(options, data, flags, obserr),
       specifichumidityvariable_(options.SpecificHumidityVariable),
       temperaturevariable_(options.TemperatureVariable),

@@ -25,8 +25,8 @@ static TransformMaker<Cal_SatRadianceFromScaledRadiance>
 Cal_SatRadianceFromScaledRadiance::Cal_SatRadianceFromScaledRadiance(
     const Parameters_ &options,
     const ObsFilterData &data,
-    const std::shared_ptr<ioda::ObsDataVector<int>> &flags,
-    const std::shared_ptr<ioda::ObsDataVector<float>> &obserr)
+    ioda::ObsDataVector<int> &flags,
+    ioda::ObsDataVector<float> &obserr)
     : TransformBase(options, data, flags, obserr), parameters_(options),
       variables_({parameters_.transformVariable.value()}),
       channels_(parameters_.transformVariable.value().channels()) {
@@ -57,8 +57,8 @@ void Cal_SatRadianceFromScaledRadiance::runTransform(const std::vector<bool> &ap
   // If no locations to process, add to obs space and return
   if (radiance.nlocs() == 0) {
     for (size_t ichan =0; ichan < radiance.nvars(); ++ichan) {
-      putObservation("radiance_" + std::to_string(channels_[ichan]),
-                     radiance[ichan]);
+      putObservation("radiance", std::to_string(channels_[ichan]),
+                     radiance[ichan], radianceVar.dimList());
     }
     return;
   }
@@ -105,8 +105,8 @@ void Cal_SatRadianceFromScaledRadiance::runTransform(const std::vector<bool> &ap
         if (radiance[ichan][iloc] != missingValueFloat  &&
             radiance[ichan][iloc] > 0.0f) {
           for (size_t iscale = 0; iscale < numScaleFactors; ++iscale) {
-            if (channels_[ichan] >= startChannelScale[iscale] &
-                channels_[ichan] <= endChannelScale[iscale]) {
+            if ( (channels_[ichan] >= startChannelScale[iscale]) &&
+                (channels_[ichan] <= endChannelScale[iscale]) ) {
               radiance[ichan][iloc] *= std::pow(10, (-1.0f*channelScaleFactor[iscale]));
               break;
             }  // if channels_
@@ -118,8 +118,8 @@ void Cal_SatRadianceFromScaledRadiance::runTransform(const std::vector<bool> &ap
 
   //  Write out the resulting data to Derived group and update qcflags
   for (size_t ichan =0; ichan < nvars; ++ichan) {
-    putObservation("radiance_" + std::to_string(channels_[ichan]),
-                   radiance[ichan]);
+    putObservation("radiance", std::to_string(channels_[ichan]),
+                   radiance[ichan], radianceVar.dimList());
   }
 }  // runTransform
 }  // namespace ufo

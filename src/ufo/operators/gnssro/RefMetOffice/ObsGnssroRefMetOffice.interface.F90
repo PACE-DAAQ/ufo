@@ -7,7 +7,7 @@
 
 module ufo_gnssro_refmetoffice_mod_c
   
-  use fckit_log_module,  only : fckit_log
+  use logger_mod, only: oops_log
   use iso_c_binding
   use ufo_gnssro_refmetoffice_mod
   use ufo_geovals_mod
@@ -35,18 +35,23 @@ contains
 subroutine ufo_gnssro_refmetoffice_setup_c(c_key_self, &
                                            vert_interp_ops, &
                                            pseudo_ops, &
-                                           min_temp_grad) bind(c,name='ufo_gnssro_refmetoffice_setup_f90')
+                                           min_temp_grad, &
+                                           dryRefractivityConstant, &
+                                           wetRefractivityConstant) bind(c,name='ufo_gnssro_refmetoffice_setup_f90')
 implicit none
 integer(c_int), intent(inout) :: c_key_self
 logical(c_bool), intent(in) :: vert_interp_ops
 logical(c_bool), intent(in) :: pseudo_ops
 real(c_float), intent(in) :: min_temp_grad
+real(c_float), intent(in) :: dryRefractivityConstant
+real(c_float), intent(in) :: wetRefractivityConstant
 
 type(ufo_gnssro_RefMetOffice), pointer :: self
 
 call ufo_gnssro_refmetoffice_registry%setup(c_key_self, self)
 
-call self%setup(vert_interp_ops, pseudo_ops, min_temp_grad)
+call self%setup(vert_interp_ops, pseudo_ops, min_temp_grad, dryRefractivityConstant, &
+                wetRefractivityConstant)
 
 end subroutine ufo_gnssro_refmetoffice_setup_c
   
@@ -80,8 +85,8 @@ type(ufo_geovals), pointer              :: geovals         ! Geovals object
 character(len=*), parameter             :: myname_="ufo_gnssro_refmetoffice_simobs_c"
 character(len=200)                      :: output_message  ! Message to be output
 
-write(output_message, *) 'TRACE: Beginning interface', c_key_obs_diags, c_key_geovals, c_key_self
-call fckit_log % info(output_message)
+write(output_message, *) 'Beginning interface', c_key_obs_diags, c_key_geovals, c_key_self
+call oops_log % trace(output_message)
 
 call ufo_gnssro_RefMetOffice_registry % get(c_key_self, self)
 call ufo_geovals_registry % get(c_key_obs_diags, obs_diags)
@@ -89,8 +94,8 @@ call ufo_geovals_registry % get(c_key_geovals, geovals)
 
 call self%simobs(geovals, c_obsspace, c_hofx, obs_diags)
 
-write(output_message, *) 'TRACE: Finishing interface'
-call fckit_log % info(output_message)
+write(output_message, *) 'Finishing interface'
+call oops_log % trace(output_message)
 
 end subroutine ufo_gnssro_refmetoffice_simobs_c
 

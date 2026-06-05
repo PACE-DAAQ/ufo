@@ -1,0 +1,66 @@
+time window:
+  begin: 2021-07-01T09:00:00Z
+  end: 2021-07-01T15:00:00Z
+
+observations:
+- obs operator:
+    name: RTTOV
+    Absorbers: &rttov_absorbers [CLW]
+    obs options: &rttov_options
+      RTTOV_default_opts: UKMO_PS45
+      SatRad_compatibility: true
+      WMO_ID: [288]
+      Sat_ID: [gpm_1]
+      Instrument_Name: GMI
+      CoefficientPath: Data/
+      RTTOV_GasUnitConv: true
+      UseRHwaterForQC: true
+  obs space:
+    name: GMI
+    obsdatain:
+      engine:
+        type: H5File
+        obsfile: Data/ufo/testinput_tier_1/jopa_gmihigh_20210701T1200Z_out_m_v14.nc4
+    simulated variables: [brightnessTemperature]
+    channels: 10-13
+#   obsdataout:
+#     engine:
+#       type: H5File
+#       obsfile: Data/gmi_gpm_obs_20210701T1200Z_m_cloudcost_out.nc4
+  geovals:
+    filename: Data/ufo/testinput_tier_1/geovals_gmihigh_20210701T1200Z_out_0000_m.nc4
+  obs filters:
+  - filter: Variable Assignment
+    assignments:
+    - name: CloudCostObsFunction/finalCost
+      type: float
+      function:
+        name: ObsFunction/CloudCostFunction
+        options:
+          cost channels list: 10, 12, 13
+          RMatrix: Data/ufo/testinput_tier_1/resources/rmatrix/rttov/gmihigh_gpm_rmatrix_test.nc4
+          BMatrix: Data/ufo/testinput_tier_1/resources/bmatrix/rttov/gmihigh_bmatrix_70_test.dat
+          background fields:
+          - air_temperature
+          - water_vapor_mixing_ratio_wrt_moist_air
+          - cloud_liquid_water_mixing_ratio_wrt_moist_air_and_condensed_water
+          - cloud_ice_mixing_ratio_wrt_moist_air_and_condensed_water
+          - air_temperature_at_2m
+          - water_vapor_mixing_ratio_wrt_moist_air_at_2m
+          - skin_temperature_at_surface
+          - air_pressure_at_surface
+          - eastward_wind_at_10m # 11 - required for windspeed retrieval
+          - northward_wind_at_10m # 11 - required for windspeed retrieval
+          qtotal: true
+          qtotal split rain: true
+          scattering radiative transfer: false  # default
+          minimum ObsValue: 70.0                # default
+          maximum ObsValue: 340.0               # default
+          minimum specific humidity: 3.0e-6     # default
+          maximum final cost: 1600.0            # default
+  compareVariables:
+  - reference:
+      name: TestReference/finalCost
+    test:
+      name: CloudCostObsFunction/finalCost
+    absTol: 1.0e-5

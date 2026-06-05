@@ -23,16 +23,16 @@ module ufo_radiancecrtm_tlad_mod
  use ufo_crtm_utils_mod
 
  use ufo_constants_mod, only: deg2rad, kg_to_g
- use ufo_utils_mod, only: cmp_strings
  use ufo_crtm_passive_mod
  use ufo_crtm_active_mod
-
+ use ufo_reconradop_crtm_mod
  implicit none
  private
 
  !> Fortran derived type for radiancecrtm trajectory
  type, public :: ufo_radiancecrtm_tlad
  private
+  type(ufo_reconradop_crtm) :: reconradop_crtm
   character(len=MAXVARLEN), public, allocatable :: varin(:)  ! variables requested from the model
   integer, allocatable                          :: channels(:)
   type(crtm_conf) :: conf
@@ -113,6 +113,7 @@ character(max_string) :: err_msg
    call abor1_ftn(err_msg)
  end if
 
+
  ! save channels
  allocate(self%channels(size(channels)))
  self%channels(:) = channels(:)
@@ -148,6 +149,7 @@ class(ufo_radiancecrtm_tlad), intent(inout) :: self
     deallocate(self%Options)
  endif
 
+
 end subroutine ufo_radiancecrtm_tlad_delete
 
 ! ------------------------------------------------------------------------------
@@ -158,7 +160,6 @@ use fckit_log_module,   only: fckit_log
 use obsdatavector_mod,  only: obsdatavector_int
 use ieee_arithmetic,    only: ieee_is_nan
 use iso_fortran_env,    only: int64
-use ufo_utils_mod,      only: cmp_strings
 use CRTM_SpcCoeff, only: SC, &
                          SpcCoeff_IsMicrowaveSensor , &
                          SpcCoeff_IsInfraredSensor  , &
@@ -359,7 +360,7 @@ integer, allocatable :: zeroCloudInCRTM0(:)
    call Load_Atm_Data(self%N_PROFILES,self%N_LAYERS,geovals,atm,self%conf_traj, SC(n)%Is_Active_Sensor, &
                       zeroCloudInCRTM0)
    deallocate(zeroCloudInCRTM0)
-   if (cmp_strings(self%conf%SENSOR_ID(n),'gmi_gpm')) then
+   if (self%conf%SENSOR_ID(n) == 'gmi_gpm') then
       allocate( geo_hf( self%n_Profiles ))
       call Load_Geom_Data(obss,geo,geo_hf,self%conf%SENSOR_ID(n))
    else
@@ -385,7 +386,7 @@ integer, allocatable :: zeroCloudInCRTM0(:)
 
        rts_K%Radiance                = ZERO
        rts_K%Brightness_Temperature  = ZERO
-   else if (Is_Vis_or_UV) then
+   else if (Is_Vis_or_UV .or. self % conf % read_Cmatrix ) then
        rts_K%Radiance                = ONE
        rts_K%Brightness_Temperature  = ZERO
    else
@@ -442,7 +443,7 @@ integer, allocatable :: zeroCloudInCRTM0(:)
                              self%Options  )  ! Input
    message = 'Error calling CRTM (setTraj) K-Matrix Model for '//TRIM(self%conf_traj%SENSOR_ID(n))
    call crtm_comm_stat_check(err_stat, PROGRAM_NAME, message, f_comm)
-   if (cmp_strings(self%conf%SENSOR_ID(n),'gmi_gpm')) then
+   if (self%conf%SENSOR_ID(n) == 'gmi_gpm') then
       allocate( atm_Ka( self%n_Channels, self%n_Profiles ),               &
                 sfc_Ka( self%n_Channels, self%n_Profiles ),   &
                 rts_Ka( self%n_Channels, self%n_Profiles ),   &
@@ -488,7 +489,7 @@ integer, allocatable :: zeroCloudInCRTM0(:)
          endif
       enddo
       deallocate(atm_Ka,sfc_Ka,rts_Ka,rtsa)
-   endif ! cmp_strings(self%conf%SENSOR_ID(n),'gmi_gpm')
+   endif ! self%conf%SENSOR_ID(n) == 'gmi_gpm'
 
    !call CRTM_RTSolution_Inspect(rts)
 
@@ -567,6 +568,20 @@ integer, allocatable :: zeroCloudInCRTM0(:)
                                 hofxdiags,&
                                 err_stat)
    else
+      if (self % conf % read_Cmatrix) then 
+         call self%reconradop_crtm%apply(self%conf % Cmatrix_path,&
+                                         rts, &
+                                         n, &
+                                         self%n_Profiles, &
+                                         self%n_Channels, &
+                                         self%conf%n_Absorbers,&
+                                         self%n_Layers,&
+                                         self%channels, &
+                                         rts_K, &
+                                         self%atm_K, &
+                                         self%sfc_K, .true. )
+      end if
+
       call ufo_crtm_passive_diag(rts, &
                                  rts_K, &
                                  atm, &
@@ -638,7 +653,7 @@ end subroutine ufo_radiancecrtm_tlad_settraj
 
 ! ------------------------------------------------------------------------------
 
-subroutine ufo_radiancecrtm_simobs_tl(self, geovals, obss, nvars, nlocs, hofx, qcf_p)
+subroutine ufo_radiancecrtm_simobs_tl(self, geovals, obss, nvars, nlocs, hofx)
 
 implicit none
 class(ufo_radiancecrtm_tlad), intent(in)    :: self
@@ -646,7 +661,6 @@ type(ufo_geovals),        intent(in)    :: geovals
 type(c_ptr), value,       intent(in)    :: obss
 integer,                  intent(in)    :: nvars, nlocs
 real(c_double),           intent(inout) :: hofx(nvars, nlocs)
-type(c_ptr), value,       intent(in)    :: qcf_p
 character(len=*), parameter :: myname_="ufo_radiancecrtm_simobs_tl"
 character(max_string) :: err_msg
 integer :: jprofile, jchannel, jlevel, jspec, ispec
@@ -707,7 +721,7 @@ real(kind_real) :: geoval_unit_rescale
      ispec = ufo_vars_getindex(self%conf_traj%Absorbers, self%conf%Absorbers(jspec))
 
      geoval_unit_rescale = one
-     if (cmp_strings(self%conf%Absorbers(ispec), var_mixr)) then
+     if (self%conf%Absorbers(ispec) == var_mixr) then
        ! NOTE if "water_vapor_mixing_ratio_wrt_dry_air", convert from JEDI's kg/kg to CRTM's g/kg
        geoval_unit_rescale = kg_to_g
      end if
@@ -871,7 +885,7 @@ end subroutine ufo_radiancecrtm_simobs_tl
 
 ! ------------------------------------------------------------------------------
 
-subroutine ufo_radiancecrtm_simobs_ad(self, geovals, obss, nvars, nlocs, hofx, qcf_p)
+subroutine ufo_radiancecrtm_simobs_ad(self, geovals, obss, nvars, nlocs, hofx)
 
 implicit none
 class(ufo_radiancecrtm_tlad), intent(in)    :: self
@@ -879,7 +893,6 @@ type(ufo_geovals),        intent(inout) :: geovals
 type(c_ptr), value,       intent(in)    :: obss
 integer,                  intent(in)    :: nvars, nlocs
 real(c_double),           intent(in)    :: hofx(nvars, nlocs)
-type(c_ptr), value,       intent(in)    :: qcf_p
 character(len=*), parameter :: myname_="ufo_radiancecrtm_simobs_ad"
 character(max_string) :: err_msg
 integer :: jprofile, jchannel, jlevel, jspec, ispec
@@ -936,7 +949,7 @@ real(kind_real) :: geoval_unit_rescale
      ispec = ufo_vars_getindex(self%conf_traj%Absorbers, self%conf%Absorbers(jspec))
 
      geoval_unit_rescale = one
-     if (cmp_strings(self%conf%Absorbers(ispec), var_mixr)) then
+     if (self%conf%Absorbers(ispec) == var_mixr) then
        ! NOTE if "water_vapor_mixing_ratio_wrt_dry_air", convert from JEDI's kg/kg to CRTM's g/kg
        geoval_unit_rescale = kg_to_g
      end if

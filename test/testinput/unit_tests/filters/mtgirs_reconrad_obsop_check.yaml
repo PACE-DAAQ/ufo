@@ -60,7 +60,6 @@ observations:
       CoefficientPath: &coefpath Data/
       RTTOV_GasUnitConv: &gasunitconv true
       UseRHwaterForQC: &UseRHwaterForQC true
-      UseColdSurfaceCheck: &UseColdSurfaceCheck false
       RTTOV_ScaleRefOzone: &RTTOV_ScaleRefOzone true
       RTTOV_clw_data: false
       RTTOV_profile_checkinput: true
@@ -120,7 +119,6 @@ observations:
         SatRad_compatibility: false # done in filter
         RTTOV_GasUnitConv: *gasunitconv
         UseRHwaterForQC: false
-        UseColdSurfaceCheck: false
         RTTOV_ScaleRefOzone: *RTTOV_ScaleRefOzone
         WMO_ID: *wmo_id
         Sat_ID: *sat_id
@@ -160,5 +158,5 @@ observations:
       EmisEigVecPath:  Data/ufo/testinput_tier_1/resources/auxillary/mtgirs_emis_eigen_vec_fstest
     RecalculateBT: true
     RetrievedErrorFactor: -1.0
-  passedBenchmark: 380
+  passedBenchmark: 380  
   #passedBenchmark: 344 # with ReconstructedRadianceCorrection: false

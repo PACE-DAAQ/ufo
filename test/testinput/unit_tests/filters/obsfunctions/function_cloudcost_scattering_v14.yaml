@@ -1,0 +1,70 @@
+time window:
+  begin: 2021-01-15T09:00:00Z
+  end: 2021-01-15T15:00:00Z
+
+observations:
+- obs operator:
+    name: RTTOV
+    Absorbers: &rttov_absorbers [CLW, CIW]
+    obs options:
+      RTTOV_default_opts: UKMO_PS45
+      SatRad_compatibility: true
+      WMO_ID: [3]
+      Sat_ID: [metop_1]
+      Instrument_Name: AMSUAMHS
+      CoefficientPath: Data/
+      Do_MW_Scatt: true
+      QtSplitRain: false
+      RTTOV_clw_data: false
+      RTTOV_GasUnitConv: true
+      UseRHwaterForQC: true
+  obs space:
+    name: metop_1_amsua_mhs
+    obsdatain:
+      engine:
+        type: H5File
+        obsfile: Data/ufo/testinput_tier_1/atovs_metopb_obs_2021011512_rttov_scatt_v14.nc4
+#    obsdataout:
+#      engine:
+#        type: H5File
+#        obsfile: Data/atovs_metopb_obs_2021011512_rttov_scatt_out_v14.nc4
+    simulated variables: [brightnessTemperature]
+    channels: 1-20
+  geovals:
+    filename: Data/ufo/testinput_tier_1/geovals_atovs_20210115T1200Z_rttov_scatt.nc4
+  obs post filters:
+  - filter: Variable Assignment
+    assignments:
+    - name: CloudCostObsFunction/finalCost
+      type: float
+      function:
+        name: ObsFunction/CloudCostFunction
+        options:
+          cost channels list: 18, 19, 20
+          background emissivity channels: 1, 2, 3, 16, 17
+          RMatrix: Data/ufo/testinput_tier_1/resources/rmatrix/rttov/atovs_metopb_rmatrix_test.nc4
+          BMatrix: Data/ufo/testinput_tier_1/resources/bmatrix/rttov/atovs_bmatrix_70_test.dat
+          background fields:
+          - air_temperature
+          - water_vapor_mixing_ratio_wrt_moist_air
+          - cloud_liquid_water_mixing_ratio_wrt_moist_air_and_condensed_water
+          - cloud_ice_mixing_ratio_wrt_moist_air_and_condensed_water
+          - air_temperature_at_2m
+          - water_vapor_mixing_ratio_wrt_moist_air_at_2m
+          - skin_temperature_at_surface
+          - air_pressure_at_surface
+          - surface_emissivity
+          qtotal: true                          # not default
+          qtotal split rain: false              # default
+          scattering radiative transfer: true   # not default
+          minimum ObsValue: 70.0                # default
+          maximum ObsValue: 340.0               # default
+          minimum specific humidity: 3.0e-6     # default
+          maximum final cost: 1600.0            # default
+          skin temperature error: 10.0          # optional B-matrix scaling
+  compareVariables:
+  - reference:
+      name: TestReference/finalCost
+    test:
+      name: CloudCostObsFunction/finalCost
+    absTol: 1.0e-6

@@ -15,12 +15,19 @@
 #include "ioda/Layout.h"
 #include "ioda/ObsGroup.h"
 
+#include "oops/util/Logger.h"
 #include "oops/util/missingValues.h"
 
 #include "ufo/utils/GeometryCalculations.h"
 #include "ufo/utils/IodaGroupIndices.h"
 
 namespace ufo {
+
+// -----------------------------------------------------------------------------
+
+static ObsErrorMaker<ObsErrorWithinGroupCov> makerWithinGroupCov_("within group covariances");
+
+// -----------------------------------------------------------------------------
 
 namespace {
 
@@ -29,7 +36,7 @@ namespace {
 // -----------------------------------------------------------------------------
 double gc99(const double & distnorm) {
   // computes Gaspari-Cohn 99 localization
-  // distnorm - normalized distance
+  // distnorm - normalized distance in meters
   double gc99value = 0.0;
   if (distnorm < 0.5) {
     gc99value = -8.0*pow(distnorm, 5.0)+8.0*pow(distnorm, 4.0)+5.0*pow(distnorm, 3.0)-
@@ -39,6 +46,31 @@ double gc99(const double & distnorm) {
                 20.0/3.0*pow(distnorm, 2.0)-10.0*distnorm+4.0-1.0/(3.0*distnorm);
   }
   return gc99value;
+}
+
+double markov(const double & distnorm, const double & maxnormdist) {
+  // computes Markov localization
+  // distnorm - normalized distance
+  // maxdist - maximum distance for localization
+  // Returns 0.0 for distances larger than maxdist
+  double markovvalue = 0.0;
+  if (distnorm < maxnormdist) {
+    markovvalue = std::exp(-distnorm);
+  }
+  return markovvalue;
+}
+
+double gaussian(const double & distnorm) {
+  // computes a Gaussian-shaped localization
+/* 
+  // cutoff to zero at normalized distance of 2.5
+  double gaussVal = 0.0;
+  if (distnorm < 2.5) {
+    gaussVal = exp(-0.5*pow(distnorm, 2));
+  }
+  return gaussVal;
+*/
+  return exp(-0.5*pow(distnorm, 2));
 }
 
 // -----------------------------------------------------------------------------
@@ -67,25 +99,33 @@ ioda::ObsDataVector<float> coord_constructor(const ObsErrorWithinGroupCovParamet
       }
       vars = params.var.value().get();
       assert(vars.size() == 1);
-      return ioda::ObsDataVector<float>(obspace, oops::ObsVariables(vars), "MetaData");
+      break;
     case DistanceFunctions::HAVERSINE:
       vars = {"latitude", "longitude"};
-      oops::ObsVariables variables(vars);
-      return ioda::ObsDataVector<float>(obspace, variables, "MetaData");
+      break;
+    default:
+      throw eckit::BadParameter("ObsErrorWithinGroupCov: unimplemented distance function", Here());
   }
+  return ioda::ObsDataVector<float>(obspace, oops::ObsVariables(vars), "MetaData");
 }
 
 }  // anonymous namespace
 
-ObsErrorWithinGroupCov::ObsErrorWithinGroupCov(const eckit::Configuration & obsErrGrpConf,
-                                             ioda::ObsSpace & obspace,
-                                             const eckit::mpi::Comm &timeComm)
-  : ObsErrorBase(timeComm), params_(oops::validateAndDeserialize<Parameters_>(obsErrGrpConf)),
-    obspace_(obspace), coord_(coord_constructor(params_, obspace)),
-    stddev_(obspace, "ObsError")
+ObsErrorWithinGroupCov::ObsErrorWithinGroupCov(const Parameters_ & params,
+                                               ioda::ObsSpace & obspace,
+                                               const eckit::mpi::Comm &timeComm)
+  : ObsErrorBase(timeComm),
+    params_(params),
+    obspace_(obspace),
+    coord_(coord_constructor(params_, obspace)),
+    stddev_(obspace, "ObsError"),
+    reconditioner_(nullptr)
 {
   correlations_.reserve(obspace.nrecs());
   double missing_double = util::missingValue<double>();
+
+  // Create reconditioner
+  reconditioner_.reset(new ObsErrorReconditioner(params_.reconditioning.value()));
 
   for (auto irec = obspace.recidx_begin(); irec != obspace.recidx_end(); ++irec) {
     std::vector<size_t> rec_idx = obspace.recidx_vector(irec);
@@ -113,18 +153,152 @@ ObsErrorWithinGroupCov::ObsErrorWithinGroupCov(const eckit::Configuration & obsE
           }
         }
         // Compute correlation value
-        corr(jloc, iloc) = gc99(distance / params_.lscale.value());
+        switch (params_.correlationFunction.value()) {
+          case CorrelationFunctions::GC99:
+            corr(jloc, iloc) = gc99(distance / params_.lscale.value());
+            break;
+          case CorrelationFunctions::MARKOV:
+            corr(jloc, iloc) = markov(distance / params_.lscale.value(),
+                                      params_.markovLengthscaleFactor.value());
+            break;
+          case CorrelationFunctions::GAUSSIAN:
+            corr(jloc, iloc) = gaussian(distance / params_.lscale.value());
+            break;
+        }
+      }
+    }
+    // The Markov and Gaussian correlation profiles do not guarantee a positive definite matrix
+    // therefore a check is needed. If the matrix is not positive definite the diagonal is
+    // slightly inflated to make it positive definite which has the effect of slightly inflating
+    // the observation errors.
+    if (params_.correlationFunction.value() == CorrelationFunctions::MARKOV ||
+        (params_.correlationFunction.value() == CorrelationFunctions::GAUSSIAN &&
+        params_.applyBasicReconditioning.value())) {
+      oops::Log::trace() << "ObsErrorWithinGroupCov::ObsErrorWithinGroupCov "
+                         << "basic reconditining enabled. "
+                         << "Checking eigenvalues of correlation matrix" << std::endl;
+      Eigen::SelfAdjointView<Eigen::MatrixXd, Eigen::Lower> corr_view(corr);
+      Eigen::SelfAdjointEigenSolver<Eigen::MatrixXd> es(corr_view);
+      double min_eigenvalue = es.eigenvalues().minCoeff();
+      if (min_eigenvalue < 0.0) {
+        oops::Log::trace() << "ObsErrorWithinGroupCov::ObsErrorWithinGroupCov "
+                          << "Inflating diagonal of correlation matrix to make it positive "
+                          << "definite. Minimum eigenvalue was " << min_eigenvalue << std::endl;
+        // Make positive definite by adding a small value to the diagonal
+        corr += 1.1 * std::abs(min_eigenvalue) * Eigen::MatrixXd::Identity(rec_nobs, rec_nobs);
       }
     }
     correlations_.push_back(corr);
-  }
+  }  // end loop over records
 }
 
 // -----------------------------------------------------------------------------
 
 void ObsErrorWithinGroupCov::update(const ioda::ObsVector & obserr) {
+  oops::Log::trace() << "ObsErrorWithinGroupCov::update() start" << std::endl;
   stddev_ = obserr;
+  if (params_.reconditioning.value().ReconMethod.value() !=
+      ufo::ObsErrorReconditionerMethod::NORECONDITIONING) {
+    this->recondition(obserr);
+  }
+  oops::Log::trace() << "ObsErrorWithinGroupCov::update() end" << std::endl;
 }
+
+// -----------------------------------------------------------------------------
+
+void ObsErrorWithinGroupCov::recondition(const ioda::ObsVector & mask) {
+  oops::Log::trace() << "ObsErrorWithinGroupCov::recondition() start" << std::endl;
+  const size_t nlocs = mask.nlocs();
+  const size_t nvars = mask.nvars();
+  const double missing = util::missingValue<double>();
+
+  for (Eigen::MatrixXd groupCorr : correlations_) {
+    // preallocate data
+    Eigen::MatrixXd avgcorr = Eigen::MatrixXd::Zero(groupCorr.rows(), groupCorr.cols());
+    size_t nused_locs = 0;
+    const double dnlocs = static_cast<double>(nlocs);
+
+    // Masking and packing R matrix at each location
+    // loop over all observations locations
+    for (size_t jloc = 0; jloc < nlocs; ++jloc) {
+      std::vector<int> usedobs_indices(nvars);
+      // Calculating variables that are used from mask
+      // These are the variables that pass QC.
+      size_t nused = 0;
+      for (size_t jvar = 0; jvar < nvars; ++jvar)
+        if (mask[jloc * nvars + jvar] != missing) usedobs_indices[nused++] = jvar;
+
+      // Initialising correlation matrix for the given location.
+      // This will be a fraction of the correlation matrix after
+      // the reconditioning has happened.
+      Eigen::MatrixXd corr_at_loc(groupCorr / dnlocs);
+      if (nused <= 1) {
+        oops::Log::trace() << "nused = " << nused
+                          << "at jloc = " << jloc
+                          << ", skipping reconditioning.\n";
+        continue;
+      }
+      oops::Log::trace() << "\nReconditioning R matrix at jloc = " << jloc << std::endl;
+      Eigen::MatrixXd R = Eigen::MatrixXd::Zero(nused, nused);
+
+      // loop over all used variables at location
+      for (size_t jvar = 0; jvar < nused; ++jvar) {
+        const size_t ivar = usedobs_indices[jvar];
+        const size_t ind = jloc * nvars + ivar;
+        R(jvar, jvar) = stddev_[ind]*stddev_[ind];
+        for (size_t jvar2 = jvar + 1; jvar2 < nused; ++jvar2) {
+          const size_t ivar2 = usedobs_indices[jvar2];
+          const size_t ind2 = jloc * nvars + ivar2;
+          R(jvar, jvar2) = groupCorr(ivar, ivar2)
+                        * stddev_[ind]
+                        * stddev_[ind2];
+          R(jvar2, jvar) = groupCorr(ivar2, ivar)
+                        * stddev_[ind2]
+                        * stddev_[ind];
+        }
+      }
+
+      // Recondition the R matrix
+      this->reconditioner_->recondition(R);
+
+      // Unpacking the reconditioned matrix
+      // into stddev_ and groupCorr members
+      // loop over all used variables at location
+      for (size_t jvar = 0; jvar < nused; ++jvar) {
+        const size_t ivar = usedobs_indices[jvar];
+        const size_t ind = jloc * nvars + ivar;
+        // Updating stddev_
+        const double stddev_ind = std::sqrt(R(jvar, jvar));
+        stddev_[ind] = stddev_ind;
+        for (size_t jvar2 = jvar + 1; jvar2 < nused; ++jvar2) {
+          // Ensuring location independent correlations
+          // by using average of reconditioned correlations at each location
+          const double stddev_ind2 = std::sqrt(R(jvar2, jvar2));
+          const size_t ivar2 = usedobs_indices[jvar2];
+          corr_at_loc(ivar, ivar2) = R(jvar, jvar2)
+                                  / (stddev_ind
+                                  * stddev_ind2
+                                  * dnlocs);
+          corr_at_loc(ivar2, ivar) = R(jvar2, jvar)
+                                  / (stddev_ind2
+                                  * stddev_ind
+                                  * dnlocs);
+        }
+      }
+      nused_locs++;
+      avgcorr += corr_at_loc;
+    }
+
+    // Reassigning the correlations to the renormalised
+    // average correlations, if any locations are used
+    if (nused_locs > 0) {
+      groupCorr = avgcorr
+                      * dnlocs
+                      / static_cast<double>(nused_locs);
+    }
+  }
+  oops::Log::trace() << "ObsErrorWithinGroupCov::recondition() end" << std::endl;
+}  // recondition
 
 // -----------------------------------------------------------------------------
 
@@ -169,7 +343,7 @@ void ObsErrorWithinGroupCov::multiplyCorrelations(ioda::ObsVector & dy) const {
       for (size_t iloc = 0; iloc < nused; ++iloc) {
         int ind = usedobs_indices[iloc];
         dy_at_rec(iloc) = dy[rec_idx[ind]*nvars + jvar];
-        for (size_t jloc = iloc+1; jloc < nused; ++jloc) {
+        for (size_t jloc = iloc; jloc < nused; ++jloc) {
           int ind2 = usedobs_indices[jloc];
           corr(jloc, iloc) = correlations_[recnumLocal](ind2, ind);
         }
@@ -221,7 +395,7 @@ void ObsErrorWithinGroupCov::inverseMultiply(ioda::ObsVector & dy) const {
       for (size_t iloc = 0; iloc < nused; ++iloc) {
         int ind = usedobs_indices[iloc];
         dy_at_rec(iloc) = dy[rec_idx[ind]*nvars + jvar];
-        for (size_t jloc = iloc+1; jloc < nused; ++jloc) {
+        for (size_t jloc = iloc; jloc < nused; ++jloc) {
           int ind2 = usedobs_indices[jloc];
           // only need the lower triangle for llt() below; not filling upper triangle
           corr(jloc, iloc) = correlations_[recnumLocal](ind2, ind);
@@ -239,6 +413,27 @@ void ObsErrorWithinGroupCov::inverseMultiply(ioda::ObsVector & dy) const {
 
   // D^{-1/2} * C^{-1} * D^{-1/2} * dy
   dy /= stddev_;
+}
+
+// -----------------------------------------------------------------------------
+
+void ObsErrorWithinGroupCov::localize(ioda::ObsVector & locvector) const {
+  throw eckit::BadParameter("Trying to localize a correlated R matrix, this is "
+                            "not yet implemented.");
+}
+
+int ObsErrorWithinGroupCov::localDim() const {
+  throw eckit::BadParameter("Trying to localize a correlated R matrix, this is "
+                            "not yet implemented.");
+}
+
+Eigen::MatrixXf ObsErrorWithinGroupCov::localInverseMultiply(const Eigen::MatrixXf & zz) const {
+  throw eckit::BadParameter("Localisation not implemented for correlated R matrices");
+}
+
+Eigen::VectorXd ObsErrorWithinGroupCov::local_invVarR() const {
+  throw eckit::BadParameter("Local inverse variance not implemented for "
+                            "correlated R matrices");
 }
 
 // -----------------------------------------------------------------------------

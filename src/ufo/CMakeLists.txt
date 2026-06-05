@@ -1,4 +1,4 @@
-# (C) Copyright 2017-2022 UCAR.
+# (C) Copyright 2017-2026 UCAR.
 #
 # This software is licensed under the terms of the Apache Licence Version 2.0
 # which can be obtained at http://www.apache.org/licenses/LICENSE-2.0.
@@ -40,9 +40,14 @@ add_subdirectory( operators/product )
 add_subdirectory( operators/radardopplerwind )
 add_subdirectory( operators/radarradialvelocity )
 add_subdirectory( operators/radarreflectivity)
-if( rttov_FOUND )
-    add_subdirectory( operators/rttov/Fortran/v12 )
-    add_subdirectory( operators/rttov/CPP/v12 )
+if ( rttov_FOUND )
+    if(DEFINED rttov_VERSION_MAJOR AND rttov_VERSION_MAJOR EQUAL 14)
+        add_subdirectory( operators/rttov/Fortran/v14 )
+        add_subdirectory( operators/rttov/CPP/v14 )
+    else()
+        add_subdirectory( operators/rttov/Fortran/v12 )
+        add_subdirectory( operators/rttov/CPP/v12 )
+    endif()
 endif()
 add_subdirectory( operators/sattcwv )
 add_subdirectory( operators/scatwind )
@@ -60,11 +65,12 @@ list( APPEND ufo_src_files
     Fortran.h
     AnalyticInit.cc
     AnalyticInit.h
+    AnalyticInitBase.cc
+    AnalyticInitBase.h
     GeoVaLs.cc
     GeoVaLs.h
     GeoVaLs.interface.F90
     GeoVaLs.interface.h
-    instantiateObsErrorFactory.h
     instantiateObsFilterFactory.h
     instantiateObsLocFactory.h
     LinearObsBiasOperator.cc
@@ -99,6 +105,8 @@ list( APPEND ufo_src_files
     ObsOperatorBase.h
     ObsOperatorParametersBase.h
     ObsTraits.h
+    QCmanager.cc
+    QCmanager.h
     SampledLocations.cc
     SampledLocations.h
     sampled_locations_f.cc
@@ -189,7 +197,7 @@ if(geos-aero_FOUND)
 endif()
 
 if(gsw_FOUND)
-    target_link_libraries(ufo PUBLIC gsw)
+    target_link_libraries(ufo PUBLIC gsw ${gsw_LIBRARIES})
     target_compile_definitions(ufo PUBLIC GSW_FOUND)
 endif()
 

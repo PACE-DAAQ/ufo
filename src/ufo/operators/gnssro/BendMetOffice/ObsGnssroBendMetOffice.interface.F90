@@ -7,7 +7,7 @@
 
 module ufo_gnssro_bendmetoffice_mod_c
   
-  use fckit_log_module,  only : fckit_log
+  use logger_mod, only: oops_log
   use iso_c_binding
   use ufo_gnssro_bendmetoffice_mod
   use ufo_geovals_mod
@@ -38,7 +38,9 @@ subroutine ufo_gnssro_bendmetoffice_setup_c(c_key_self, &
                                             min_temp_grad, &
                                             nchans, &
                                             chanList, &
-                                            noSuperCheck) bind(c,name='ufo_gnssro_bendmetoffice_setup_f90')
+                                            noSuperCheck, &
+                                            dryRefractivityConstant, &
+                                            wetRefractivityConstant) bind(c,name='ufo_gnssro_bendmetoffice_setup_f90')
 implicit none
 integer(c_int), intent(inout) :: c_key_self        !< Reference to this object
 logical(c_bool), intent(in)   :: vert_interp_ops   !< Whether to do vertical interpolation using ln(p)
@@ -47,6 +49,8 @@ real(c_float), intent(in)     :: min_temp_grad     !< Minimum temperature gradie
 integer(c_int), intent(in)    :: nchans            !< Number of channels (levels) to be used
 integer(c_int), intent(in)    :: chanList(nchans)  !< List of channels to use
 logical(c_bool), intent(in)   :: noSuperCheck      !< Whether to avoid using super-refraction check in operator
+real(c_float), intent(in)     :: dryRefractivityConstant !< Dry refractivity constant
+real(c_float), intent(in)     :: wetRefractivityConstant !< Wet refractivity constant
 
 integer(c_int)                :: noChans(1)        !< Channel list when no channels are used
 
@@ -56,9 +60,11 @@ call ufo_gnssro_bendmetoffice_registry%setup(c_key_self, self)
 
 if (nchans == 0) then
   noChans(1) = 0
-  call self%setup(vert_interp_ops, pseudo_ops, min_temp_grad, noChans, noSuperCheck)
+  call self%setup(vert_interp_ops, pseudo_ops, min_temp_grad, noChans, noSuperCheck, &
+                  dryRefractivityConstant, wetRefractivityConstant)
 else
-  call self%setup(vert_interp_ops, pseudo_ops, min_temp_grad, chanList, noSuperCheck)
+  call self%setup(vert_interp_ops, pseudo_ops, min_temp_grad, chanList, noSuperCheck, &
+                  dryRefractivityConstant, wetRefractivityConstant)
 end if
 
 end subroutine ufo_gnssro_bendmetoffice_setup_c
@@ -94,8 +100,8 @@ type(ufo_geovals), pointer              :: geovals         ! Geovals object
 character(len=*), parameter             :: myname_="ufo_gnssro_bendmetoffice_simobs_c"
 character(len=200)                      :: output_message  ! Message to be output
 
-write(output_message, *) 'TRACE: Beginning interface', c_key_obs_diags, c_key_geovals, c_key_self
-call fckit_log % info(output_message)
+write(output_message, *) 'Beginning interface', c_key_obs_diags, c_key_geovals, c_key_self
+call oops_log % trace(output_message)
 
 call ufo_gnssro_BendMetOffice_registry % get(c_key_self, self)
 call ufo_geovals_registry % get(c_key_obs_diags, obs_diags)
@@ -103,8 +109,8 @@ call ufo_geovals_registry % get(c_key_geovals, geovals)
 
 call self%simobs(geovals, c_obsspace, c_nvars, c_nlocs, c_hofx, obs_diags)
 
-write(output_message, *) 'TRACE: Finishing interface'
-call fckit_log % info(output_message)
+write(output_message, *) 'Finishing interface'
+call oops_log % trace(output_message)
 
 end subroutine ufo_gnssro_bendmetoffice_simobs_c
 

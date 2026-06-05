@@ -69,14 +69,14 @@ namespace ufo {
     // In order to correctly handle MPI ranks with zero entries,
     // ensure that all of the variables defined above have been added to the ObsSpace
     // on each rank. This prevents a hang when saving the ObsSpace.
-    for (const auto variableInt : variableNamesInt) {
-      const auto & vectorInt = profileDataHandler.get<int>(variableInt);
+    for (const auto & variableInt : variableNamesInt) {
+      profileDataHandler.get<int>(variableInt);
     }
-    for (const auto variableFloat : variableNamesFloat) {
-      const auto & vectorFloat = profileDataHandler.get<float>(variableFloat);
+    for (const auto & variableFloat : variableNamesFloat) {
+      profileDataHandler.get<float>(variableFloat);
     }
-    for (const auto variableBool : variableNamesBool) {
-      const auto & vectorBool = profileDataHandler.get<bool>(variableBool);
+    for (const auto & variableBool : variableNamesBool) {
+      profileDataHandler.get<bool>(variableBool);
     }
 
     std::vector <ProfileDataHolder> profiles =

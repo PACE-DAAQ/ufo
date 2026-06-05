@@ -42,10 +42,8 @@ class ObsLogarithmTLAD : public LinearObsOperatorBase,
 
   void setTrajectory(const GeoVaLs &, ObsDiagnostics &,
                      const QCFlags_t &) override;
-  void simulateObsTL(const GeoVaLs &, ioda::ObsVector &,
-                     const QCFlags_t &) const override;
-  void simulateObsAD(GeoVaLs &, const ioda::ObsVector &,
-                     const QCFlags_t &) const override;
+  void simulateObsTL(const GeoVaLs &, ioda::ObsVector &) const override;
+  void simulateObsAD(GeoVaLs &, const ioda::ObsVector &) const override;
 
   const oops::Variables &requiredVars() const override { return requiredVars_; }
 
@@ -65,7 +63,7 @@ class ObsLogarithmTLAD : public LinearObsOperatorBase,
   std::vector<int> operatorVarIndices_;
 
   /// Log base (0 for natural logarithm)
-  float logBase_ = 0.0;
+  double logBase_ = 0.0;
 
   /// Values of derivative at the lowest model level - length of the vector is
   /// the number of required variables in the operator multiplied by the number

@@ -35,8 +35,8 @@ namespace ufo {
 BayesianBackgroundCheck::BayesianBackgroundCheck(
         ioda::ObsSpace & obsdb,
         const Parameters_ & parameters,
-        std::shared_ptr<ioda::ObsDataVector<int> > flags,
-        std::shared_ptr<ioda::ObsDataVector<float> > obserr)
+        ioda::ObsDataVector<int> & flags,
+        ioda::ObsDataVector<float> & obserr)
   : FilterBase(obsdb, parameters, flags, obserr, VariableNameMap(parameters.AliasFile.value())),
     parameters_(parameters)
 
@@ -100,7 +100,7 @@ void BayesianBackgroundCheck::applyFilter(const std::vector<bool> & apply,
   oops::Log::trace() << "BayesianBackgroundCheck applyFilter start" << std::endl;
   const oops::ObsVariables observed = obsdb_.obsvariables();
 
-  oops::Log::debug() << "BayesianBackgroundCheck obserr: " << *obserr_ << std::endl;
+  oops::Log::debug() << "BayesianBackgroundCheck obserr: " << obserr_ << std::endl;
 
   ioda::ObsDataVector<float> obs(obsdb_, filtervars.toOopsObsVariables(), "ObsValue");
 
@@ -167,7 +167,6 @@ void BayesianBackgroundCheck::applyFilter(const std::vector<bool> & apply,
       previousVariableWasFirstComponentOfTwo = true;
     } else {
       std::string varname1, varname2;
-      size_t iv1, iv2;
       // H(x):
       std::vector<float> hofx1, hofx2;
       // H(x) error:
@@ -198,8 +197,6 @@ void BayesianBackgroundCheck::applyFilter(const std::vector<bool> & apply,
       if (previousVariableWasFirstComponentOfTwo) {
         varname1 = filtervars.variable(filterVarIndex-1).variable();
         varname2 = filtervars.variable(filterVarIndex).variable();
-        iv1 = observed.find(varname1);
-        iv2 = observed.find(varname2);
         // H(x):
         data_.get(varhofx.variable(filterVarIndex-1), hofx1);
         data_.get(varhofx.variable(filterVarIndex), hofx2);
@@ -241,7 +238,6 @@ void BayesianBackgroundCheck::applyFilter(const std::vector<bool> & apply,
         }
       } else {
         varname1 = filtervars.variable(filterVarIndex).variable();
-        iv1 = observed.find(varname1);
         // H(x):
         data_.get(varhofx.variable(filterVarIndex), hofx1);
         // observation values:
@@ -284,7 +280,7 @@ void BayesianBackgroundCheck::applyFilter(const std::vector<bool> & apply,
       // create reduced vectors, copied from full ones, fulfilling applycondition:
       std::vector<float> firstComponentObVal_reduced = reduceVector(firstComponentObVal,
                                                                     j_reduced);
-      std::vector<float> ObsErr_reduced = reduceVector((*obserr_)[varname1], j_reduced);
+      std::vector<float> ObsErr_reduced = reduceVector(obserr_[varname1], j_reduced);
       std::vector<float> hofx1_reduced = reduceVector(hofx1, j_reduced);
       std::vector<float> hofxerr_reduced = reduceVector(hofxerr, j_reduced);
       std::vector<float> PdBad_reduced = reduceVector(PdBad, j_reduced);
@@ -338,29 +334,38 @@ void BayesianBackgroundCheck::applyFilter(const std::vector<bool> & apply,
       unreduceVector(TotalPd_reduced, TotalPd, j_reduced);
 
       // Save PGE to obsdb
-      obsdb_.put_db("GrossErrorProbability", varname1, PGE1);              // PGE
+      const std::vector<std::string> dimList = filtervars.variable(filterVarIndex).dimList();
+      obsdb_.put_db("GrossErrorProbability", varname1, PGE1, dimList);       // PGE
       if (parameters_.SaveTotalPd) {
-          obsdb_.put_db("GrossErrorProbabilityTotal", varname1, TotalPd);
+          obsdb_.put_db("GrossErrorProbabilityTotal", varname1, TotalPd, dimList);
       }
 
       // Save diagnostic flags to obsdb
-      obsdb_.put_db("DiagnosticFlags/BackgroundCheckPerformed", varname1, diagFlagsBackPerf);
-      obsdb_.put_db("DiagnosticFlags/BackgroundCheckRejection", varname1, diagFlagsBackReject);
-      obsdb_.put_db("DiagnosticFlags/PermanentStationRejection", varname1, diagFlagsPermReject);
-      obsdb_.put_db("DiagnosticFlags/FinalQCRejection", varname1, diagFlagsFinalReject);
+      obsdb_.put_db("DiagnosticFlags/BackgroundCheckPerformed", varname1,
+                    diagFlagsBackPerf, dimList);
+      obsdb_.put_db("DiagnosticFlags/BackgroundCheckRejection", varname1,
+                    diagFlagsBackReject, dimList);
+      obsdb_.put_db("DiagnosticFlags/PermanentStationRejection", varname1,
+                    diagFlagsPermReject, dimList);
+      obsdb_.put_db("DiagnosticFlags/FinalQCRejection", varname1,
+                    diagFlagsFinalReject, dimList);
 
       if (previousVariableWasFirstComponentOfTwo) {
         // Save PGE to obsdb
         std::vector<float> &PGE2 = PGE1;  // in old OPS, PGE same for both components of 2-vector
-        obsdb_.put_db("GrossErrorProbability", varname2, PGE2);
+        obsdb_.put_db("GrossErrorProbability", varname2, PGE2, dimList);
         if (parameters_.SaveTotalPd) {
-            obsdb_.put_db("GrossErrorProbabilityTotal", varname2, TotalPd);
+            obsdb_.put_db("GrossErrorProbabilityTotal", varname2, TotalPd, dimList);
         }
         // Save diagnostic flags to obsdb
-        obsdb_.put_db("DiagnosticFlags/BackgroundCheckPerformed", varname2, diagFlagsBackPerf);
-        obsdb_.put_db("DiagnosticFlags/BackgroundCheckRejection", varname2, diagFlagsBackReject);
-        obsdb_.put_db("DiagnosticFlags/PermanentStationRejection", varname2, diagFlagsPermReject);
-        obsdb_.put_db("DiagnosticFlags/FinalQCRejection", varname2, diagFlagsFinalReject);
+        obsdb_.put_db("DiagnosticFlags/BackgroundCheckPerformed", varname2,
+                      diagFlagsBackPerf, dimList);
+        obsdb_.put_db("DiagnosticFlags/BackgroundCheckRejection", varname2,
+                      diagFlagsBackReject, dimList);
+        obsdb_.put_db("DiagnosticFlags/PermanentStationRejection", varname2,
+                      diagFlagsPermReject, dimList);
+        obsdb_.put_db("DiagnosticFlags/FinalQCRejection", varname2,
+                      diagFlagsFinalReject, dimList);
         // Set flagged, for 2nd component:
         for (size_t jobs=0; jobs < obsdb_.nlocs(); ++jobs) {
           if (diagFlagsBackReject[jobs]) {

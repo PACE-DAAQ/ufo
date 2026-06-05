@@ -17,7 +17,6 @@ observations:
       CoefficientPath: Data/
       RTTOV_GasUnitConv: true
       UseRHwaterForQC: true
-      UseColdSurfaceCheck: false
       RTTOV_clw_data: false
       RTTOV_profile_checkinput: true
       surface emissivity group: SurfEmiss

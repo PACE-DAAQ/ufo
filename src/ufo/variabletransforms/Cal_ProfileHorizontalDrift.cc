@@ -20,8 +20,8 @@ makerCal_ProfileHorizontalDrift_("ProfileHorizontalDrift");
 Cal_ProfileHorizontalDrift::Cal_ProfileHorizontalDrift
 (const Parameters_ &options,
  const ObsFilterData &data,
- const std::shared_ptr<ioda::ObsDataVector<int>> &flags,
- const std::shared_ptr<ioda::ObsDataVector<float>> &obserr)
+ ioda::ObsDataVector<int> &flags,
+ ioda::ObsDataVector<float> &obserr)
   : TransformBase(options, data, flags, obserr),
     heightCoord_(options.HeightCoord),
     keep_in_window_(options.keep_in_window),
@@ -64,9 +64,6 @@ void Cal_ProfileHorizontalDrift::runTransform(const std::vector<bool> &apply) {
                          << std::endl;
     throw eckit::BadValue("At least one vector is the wrong size", Here());
   }
-
-  // Number of locations in the ObsSpace.
-  const size_t nlocs = obsdb_.nlocs();
 
   // Output values are initialised to input values.
   std::vector<float> latitude_out = latitude_in;

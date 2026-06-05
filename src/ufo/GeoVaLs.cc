@@ -24,6 +24,7 @@
 #include "oops/util/Logger.h"
 #include "oops/util/Range.h"
 
+#include "ufo/AnalyticInitBase.h"
 #include "ufo/GeoVaLs.interface.h"
 #include "ufo/ObsTraits.h"
 #include "ufo/SampledLocations.h"
@@ -144,6 +145,21 @@ GeoVaLs::GeoVaLs(const Locations_ & locations,
 }
 
 // -----------------------------------------------------------------------------
+/*! \brief Analytic init constructor, based off of existing GeoVaLs */
+GeoVaLs::GeoVaLs(const Locations_ & locations, const GeoVaLs & other,
+                 const eckit::Configuration & initConf)
+  : keyGVL_(-1), vars_(other.vars_), reducedVars_(other.reducedVars_), dist_(other.dist_)
+{
+  oops::Log::trace() << "GeoVaLs analytic init constructor starting" << std::endl;
+  ufo_geovals_copy_f90(other.keyGVL_, keyGVL_);
+  if (!initConf.empty()) {
+    std::unique_ptr<AnalyticInitBase> init(ufo::AnalyticInitFactory::create(initConf));
+    init->fillGeoVaLs(locations.samplingMethod(0).sampledLocations(), *this);
+  }
+  oops::Log::trace() << "GeoVaLs analytic init constructor key = " << keyGVL_ << std::endl;
+}
+
+// -----------------------------------------------------------------------------
 /*! \brief Constructor for tests
  *
  * \param params
@@ -192,7 +208,6 @@ GeoVaLs::GeoVaLs(const GeoVaLs & other, const int & index)
 }
 // -----------------------------------------------------------------------------
 /*! \brief Copy constructor */
-
 GeoVaLs::GeoVaLs(const GeoVaLs & other)
   : keyGVL_(-1), vars_(other.vars_), reducedVars_(other.reducedVars_), dist_(other.dist_)
 {
@@ -257,8 +272,7 @@ void GeoVaLs::allocate(const int & nlevels, const oops::Variables & vars)
   oops::Log::trace() << "GeoVaLs::allocate done" << std::endl;
 }
 // -----------------------------------------------------------------------------
-void GeoVaLs::addReducedVars(const oops::Variables & vars,
-                                     const std::vector<size_t> & nlevs) {
+void GeoVaLs::addReducedVars(const oops::Variables & vars, const std::vector<size_t> & nlevs) {
   oops::Log::trace() << "GeoVaLs::addReducedVars starting" << std::endl;
   reducedVars_ += vars;
   ufo_geovals_add_reduced_vars_f90(keyGVL_, vars, nlevs.size(), nlevs.data());
@@ -763,24 +777,6 @@ void GeoVaLs::fillAD(const oops::Variable &var, const ConstVectorRef<size_t> &in
                             npts, findx.data(), nlev, vals.data(), levelsTopDown);
 
   oops::Log::trace() << "GeoVaLs::fillAD done" << std::endl;
-}
-// -----------------------------------------------------------------------------
-/*! \brief Read GeoVaLs from the file */
-void GeoVaLs::read(const eckit::Configuration & config,
-                   const ioda::ObsSpace & obspace) {
-  oops::Log::trace() << "GeoVaLs::read starting" << std::endl;
-  Parameters_ params;
-  params.validateAndDeserialize(config);
-  if (params.filename.value() == boost::none) {
-    throw eckit::UserError("geovals requires 'filename' section", Here());
-  }
-  oops::Variables allVars = vars_;
-  allVars += reducedVars_;
-  ufo_geovals_read_file_f90(keyGVL_, params.toConfiguration(), obspace, allVars);
-  // Update the lists of variables to reflect what has been loaded from the file
-  ufo_geovals_get_vars_f90(keyGVL_, vars_, static_cast<int>(GeoVaLFormat::SAMPLED));
-  ufo_geovals_get_vars_f90(keyGVL_, reducedVars_, static_cast<int>(GeoVaLFormat::REDUCED));
-  oops::Log::trace() << "GeoVaLs::read done" << std::endl;
 }
 // -----------------------------------------------------------------------------
 /*! \brief Write GeoVaLs to the file */

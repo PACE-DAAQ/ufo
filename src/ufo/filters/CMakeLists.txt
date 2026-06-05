@@ -1,4 +1,4 @@
-# (C) Copyright 2017-2018 UCAR.
+# (C) Copyright 2017-2026 UCAR.
 #
 # This software is licensed under the terms of the Apache Licence Version 2.0
 # which can be obtained at http://www.apache.org/licenses/LICENSE-2.0.
@@ -22,6 +22,8 @@ set ( filters_files
       DiagnosticFlag.h
       DifferenceCheck.cc
       DifferenceCheck.h
+      DuplicateThinning.cc
+      DuplicateThinning.h
       EnsembleStatistics.cc
       EnsembleStatistics.h
       FilterBase.cc
@@ -30,8 +32,6 @@ set ( filters_files
       FilterParametersBase.h
       FilterUtils.cc
       FilterUtils.h
-      FinalCheck.cc
-      FinalCheck.h
       GenericFilterParameters.h
       GeoVaLsWriter.cc
       GeoVaLsWriter.h
@@ -78,6 +78,8 @@ set ( filters_files
       ObsDomainErrCheck.h
       ObsFilterData.cc
       ObsFilterData.h
+      ObsPolygonCheck.cc
+      ObsPolygonCheck.h
       ObsRefractivityGradientCheck.h
       ObsRefractivityGradientCheck.cc
       ParameterSubstitution.cc
@@ -89,8 +91,6 @@ set ( filters_files
       ProcessAMVQI.cc
       ProcessAMVQI.h
       QCflags.h
-      QCmanager.cc
-      QCmanager.h
       PerformAction.cc
       PerformAction.h
       ProfileAverageObsToModLevels.cc
@@ -257,6 +257,8 @@ set ( filters_files
       obsfunctions/CloudDetectMinResidualIR.h
       obsfunctions/CloudFirstGuessMinimumResidual.cc
       obsfunctions/CloudFirstGuessMinimumResidual.h
+      obsfunctions/CircularDifference.cc
+      obsfunctions/CircularDifference.h
       obsfunctions/MetOfficeAllSkyErrorModel.cc
       obsfunctions/MetOfficeAllSkyErrorModel.h
       obsfunctions/ModelHeightAdjustedWindVectorComponent.cc
@@ -325,6 +327,10 @@ set ( filters_files
       obsfunctions/SatwindIndivErrors.h
       obsfunctions/SatWindsLNVDCheck.cc
       obsfunctions/SatWindsLNVDCheck.h
+      obsfunctions/Statistic.cc
+      obsfunctions/Statistic.h
+      obsfunctions/TimeBinner.cc
+      obsfunctions/TimeBinner.h
       obsfunctions/WindsSPDBCheck.cc
       obsfunctions/WindsSPDBCheck.h
       obsfunctions/SatWindsErrnormCheck.cc
@@ -366,8 +372,12 @@ set ( filters_files
       obsfunctions/ProfileAverageObsPressure.h
       obsfunctions/ProfileLevelCount.cc
       obsfunctions/ProfileLevelCount.h
+      obsfunctions/ProfileVerticalSmoothing.cc
+      obsfunctions/ProfileVerticalSmoothing.h
       obsfunctions/DateTimeOffset.cc
       obsfunctions/DateTimeOffset.h
+      obsfunctions/LinearTimeInterpolate.cc
+      obsfunctions/LinearTimeInterpolate.h
       obsfunctions/FillAveragedProfileData.cc
       obsfunctions/FillAveragedProfileData.h
       obsfunctions/MetOfficeRelativeHumidityCorrection.cc

@@ -63,8 +63,8 @@ class TrackCheckShip: public FilterBase,
   static const std::string classname() {return "ufo::TrackCheckShip";}
 
   TrackCheckShip(ioda::ObsSpace &obsdb, const Parameters_ &parameters,
-                 std::shared_ptr<ioda::ObsDataVector<int> > flags,
-                 std::shared_ptr<ioda::ObsDataVector<float> > obserr);
+                 ioda::ObsDataVector<int> & flags,
+                 ioda::ObsDataVector<float> & obserr);
 
   ~TrackCheckShip() override;
 
@@ -162,9 +162,9 @@ class TrackCheckShip: public FilterBase,
     }
 
    private:
+    TrackCheckUtils::ObsLocationTime obsLocationTime_;
     std::shared_ptr<TrackStatistics> fullTrackStatistics_;
     ObservationStatistics observationStatistics_;
-    TrackCheckUtils::ObsLocationTime obsLocationTime_;
     size_t observationNumber_;
     bool rejected_;
   };

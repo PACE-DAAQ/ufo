@@ -50,6 +50,8 @@ type, public :: ufo_gnssroonedvarcheck
   real(kind_real)           :: min_temp_grad     !< The minimum vertical temperature gradient allowed
   integer, allocatable      :: chanList(:)       !< List of channels (levels) to use
   logical                   :: noSuperCheck      !< If true then super-refraction check will not be used in operator
+  real(kind_real)           :: dryRefractivityConstant  !< Dry refractivity constant
+  real(kind_real)           :: wetRefractivityConstant  !< Wet refractivity constant
 end type ufo_gnssroonedvarcheck
 
 ! ------------------------------------------------------------------------------
@@ -68,7 +70,8 @@ subroutine ufo_gnssroonedvarcheck_create(self, obsspace, bmatrix_filename, &
                                          Delta_ct2, Delta_factor, min_temp_grad, &
                                          n_iteration_test, OB_test, pseudo_ops, &
                                          vert_interp_ops, y_test, onedvarflag, &
-                                         chanList, noSuperCheck)
+                                         chanList, noSuperCheck, dryRefractivityConstant, &
+                                         wetRefractivityConstant)
 
   implicit none
   type(ufo_gnssroonedvarcheck), intent(inout) :: self              !< gnssroonedvarcheck main object
@@ -87,6 +90,8 @@ subroutine ufo_gnssroonedvarcheck_create(self, obsspace, bmatrix_filename, &
   integer(c_int), intent(in)                  :: onedvarflag       !< flag for qc manager
   integer(c_int), intent(in)                  :: chanList(:)       !< List of channels to use
   logical(c_bool), intent(in)                 :: noSuperCheck      !< If true then don't use super-refraction check in operator
+  real(c_float), intent(in)                   :: dryRefractivityConstant  !< Dry refractivity constant
+  real(c_float), intent(in)                   :: wetRefractivityConstant  !< Wet refractivity constant
 
   character(len=800) :: message
   integer :: i
@@ -108,6 +113,8 @@ subroutine ufo_gnssroonedvarcheck_create(self, obsspace, bmatrix_filename, &
   allocate(self % chanList(1:SIZE(chanList)))
   self % chanList(1:SIZE(chanList)) = chanList(1:SIZE(chanList))
   self % noSuperCheck = noSuperCheck
+  self % dryRefractivityConstant = dryRefractivityConstant
+  self % wetRefractivityConstant = wetRefractivityConstant
 
   write(message, '(A)') 'GNSS-RO 1D-Var check: input parameters are:'
   call fckit_log % debug(message)
@@ -140,6 +147,10 @@ subroutine ufo_gnssroonedvarcheck_create(self, obsspace, bmatrix_filename, &
     call fckit_log % debug(message)
   end do
   write(message, '(A,L1)') 'no super check = ', noSuperCheck
+  call fckit_log % debug(message)
+  write(message, '(A,F16.6)') 'Dry refractivity constant = ', dryRefractivityConstant
+  call fckit_log % debug(message)
+  write(message, '(A,F16.6)') 'Wet refractivity constant = ', wetRefractivityConstant
   call fckit_log % debug(message)
 
 end subroutine ufo_gnssroonedvarcheck_create
@@ -227,11 +238,11 @@ subroutine ufo_gnssroonedvarcheck_apply(self, geovals, apply)
 !
 ! Diagnostics to push back to the obs-space
 !
-  integer, allocatable               :: indices(:)            ! The indices of the diagnostic elements to be updated
   integer, allocatable               :: niter(:)              ! Number of iterations required to converge
   real(kind_real), allocatable       :: initial_cost(:)       ! Initial cost-function value
   real(kind_real), allocatable       :: final_cost(:)         ! Final cost-function value
   real(kind_real), allocatable       :: dfs_list(:)           ! Degrees of freedom for signal
+  integer                            :: ind
 
   ! Get the obs-space information
   nobs = obsspace_get_nlocs(self % obsdb)
@@ -383,6 +394,8 @@ subroutine ufo_gnssroonedvarcheck_apply(self, geovals, apply)
                               self % OB_test,          &   ! Threshold value for the O-B test
                               self % capsupersat,      &   ! Whether to remove super-saturation
                               self % noSuperCheck,     &   ! If true then don't use super-refraction check in operator
+                              self % dryRefractivityConstant, & ! Dry refractivity constant
+                              self % wetRefractivityConstant, & ! Wet refractivity constant
                               BAerr,                   &   ! Whether there are errors in the bending angle calculation
                               Tb,                      &   ! Calculated background temperature
                               Ts,                      &   ! 1DVar solution temperature
@@ -391,10 +404,10 @@ subroutine ufo_gnssroonedvarcheck_apply(self, geovals, apply)
 
     ! Flag bad profiles
     do ipoint = 0, nobs_profile-1
-      if (qc_flags(start_point + ipoint) > 0) then
+      if (qc_flags(index_vals(start_point + ipoint)) > 0) then
         ! Do nothing, since the data are already flagged
       else if (Ob % bendingangle(ipoint+1) % PGEFinal > 0.5) then
-        qc_flags(start_point + ipoint) = self % onedvarflag
+        qc_flags(index_vals(start_point + ipoint)) = self % onedvarflag
         Ob % qc_flags(ipoint+1) = self % onedvarflag
       end if
     end do
@@ -413,15 +426,13 @@ subroutine ufo_gnssroonedvarcheck_apply(self, geovals, apply)
     end if
 
     ! Save the diagnostic information
-    allocate(indices(1:nobs_profile))
     do ipoint = 0, nobs_profile-1
-      indices(ipoint+1) = 1 + ((index_vals(start_point+ipoint) - 1) / nlevels)
+      ind = 1 + ((index_vals(start_point+ipoint) - 1) / nlevels)
+      niter(ind) = Ob % niter
+      initial_cost(ind) = O_Bdiff
+      final_cost(ind) = Ob % jcost
+      dfs_list(ind) = DFS
     end do
-    niter(indices) = Ob % niter
-    initial_cost(indices) = O_Bdiff
-    final_cost(indices) = Ob % jcost
-    dfs_list(indices) = DFS
-    deallocate(indices)
 
     call deallocate_singleob(Ob)
   end do
