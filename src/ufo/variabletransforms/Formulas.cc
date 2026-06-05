@@ -192,8 +192,8 @@ float Qsat_From_Psat(float Psat, float P, Formulation formulation) {
 
   switch (formulation) {
     case Formulation::GillUKMO:
-      QSat = (Constants::epsilon * Psat) /
-             (std::max(P, Psat) - (1.0f - Constants::epsilon) * Psat);
+      QSat = (Constants::rd_over_rv * Psat) /
+             (std::max(P, Psat) - (1.0f - Constants::rd_over_rv) * Psat);
       break;
     default: {
       std::string errString =
@@ -213,7 +213,7 @@ float VirtualTemp_From_Psat_P_T(float Psat, float P, float T, Formulation formul
 
   switch (formulation) {
     case Formulation::DEFAULT: {
-      Tv = T * ((P + Psat / Constants::epsilon) / (P + Psat));
+      Tv = T * ((P + Psat / Constants::rd_over_rv) / (P + Psat));
       break;
     }
     default: {
@@ -246,6 +246,15 @@ float VirtualTemp_From_Rh_Psat_P_T(float Rh, float Psat, float P, float T,
     }
   }
 
+  return Tv;
+}
+
+/* -------------------------------------------------------------------------------------*/
+
+float VirtualTemp_From_Sh_AT(float Sh, float At) {
+  float Tv = util::missingValue<float>();  // virtual temperature
+  float qv = std::max(1.0e-12f, Sh/(1.0f-Sh));  // specific humidity
+  Tv = At * (Constants::one + (Constants::t2tv * qv));
   return Tv;
 }
 
