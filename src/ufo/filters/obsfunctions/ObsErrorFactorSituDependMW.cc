@@ -17,6 +17,7 @@
 
 #include "ioda/ObsDataVector.h"
 #include "oops/util/IntSetParser.h"
+#include "oops/util/Logger.h"
 #include "oops/util/missingValues.h"
 #include "ufo/filters/ObsFilterData.h"
 #include "ufo/filters/Variable.h"
@@ -145,7 +146,7 @@ void ObsErrorFactorSituDependMW::compute(const ObsFilterData & in,
     for (size_t iloc = 0; iloc < nlocs; iloc++) {
       if (flaggrp == "PreQC") obserrdata[iloc] == missing ? qcflagdata[iloc] = 100
                                                            : qcflagdata[iloc] = 0;
-      (qcflagdata[iloc] == 0) ? (varinv[ichan][iloc] = 1.0 / pow(obserrdata[iloc], 2))
+      (qcflagdata[iloc] == 0) ? (varinv[ichan][iloc] = 1.0 / std::pow(obserrdata[iloc], 2))
                               : (varinv[ichan][iloc] = 0.0);
     }
   }
@@ -172,13 +173,13 @@ void ObsErrorFactorSituDependMW::compute(const ObsFilterData & in,
   in.get(Variable("GeoVaLs/water_area_fraction"), water_frac);
 
   // Set channel number
-  int ich238, ich314, ich503, ich528, ich536, ich544, ich549, ich890;
+  int ich536 = 0, ich890 = 0;
   if (inst == "amsua") {
-    ich238 = 1, ich314 = 2, ich503 = 3, ich528 = 4, ich536 = 5;
-    ich544 = 6, ich549 = 7, ich890 = 15;
+    ich536 = 5;
+    ich890 = 15;
   } else if (inst == "atms") {
-    ich238 = 1, ich314 = 2, ich503 = 3, ich528 = 5, ich536 = 6;
-    ich544 = 7, ich549 = 8, ich890 = 16;
+    ich536 = 6;
+    ich890 = 16;
   }
 
   // Get Original Observation Error from ObsFunction
@@ -199,7 +200,7 @@ void ObsErrorFactorSituDependMW::compute(const ObsFilterData & in,
           size_t channel = ichan + 1;
           if (varinv[ichan][iloc] > 0.0 && (channel <= ich536 || channel >= ich890)) {
             float term = (1.0 - icol) * std::abs(innov[ichan][iloc]);
-            term = term + std::min(0.002 * pow(wind_speed_at_surface[iloc], 2) *
+            term = term + std::min(0.002 * std::pow(wind_speed_at_surface[iloc], 2) *
                           (*obserr0)[ichan][iloc], 0.5 * (*obserr0)[ichan][iloc]);
             float clwtmp = std::min(std::abs((clwobs[0][iloc] - clwbkg[0][iloc])), 1.f);
             term = term + std::min(13.0 * clwtmp * (*obserr0)[ichan][iloc], 3.5 *
@@ -208,9 +209,9 @@ void ObsErrorFactorSituDependMW::compute(const ObsFilterData & in,
               term = term + std::min(1.5 * (scatobs[0][iloc] - 9.0) * (*obserr0)[ichan][iloc],
                                      2.5 * (*obserr0)[ichan][iloc]);
             }
-            term = pow(term, 2.0);
+            term = std::pow(term, 2.0);
             out[ichan][iloc] = 1.0 / (1.0 + varinv[ichan][iloc] * term);
-            out[ichan][iloc] = sqrt(1.0 / out[ichan][iloc]);
+            out[ichan][iloc] = std::sqrt(1.0 / out[ichan][iloc]);
           }
         }
       }
@@ -235,7 +236,7 @@ void ObsErrorFactorSituDependMW::compute(const ObsFilterData & in,
           size_t channel = ichan + 1;
           if (varinv[ichan][iloc] > 0.0 && (channel <= ich536 || channel >= ich890)) {
             float term = (1.0 - icol) * std::abs(innov[ichan][iloc]);
-            term = term + std::min(0.002 * pow(wind_speed_at_surface[iloc], 2) *
+            term = term + std::min(0.002 * std::pow(wind_speed_at_surface[iloc], 2) *
                           obserr0[ichan][iloc], 0.5 * obserr0[ichan][iloc]);
             float clwtmp = std::min(std::abs((clwobs[0][iloc] - clwbkg[0][iloc])), 1.f);
             term = term + std::min(13.0 * clwtmp * obserr0[ichan][iloc], 3.5 *
@@ -244,9 +245,9 @@ void ObsErrorFactorSituDependMW::compute(const ObsFilterData & in,
               term = term + std::min(1.5 * (scatobs[0][iloc] - 9.0) * obserr0[ichan][iloc],
                                      2.5 * obserr0[ichan][iloc]);
             }
-            term = pow(term, 2.0);
+            term = std::pow(term, 2.0);
             out[ichan][iloc] = 1.0 / (1.0 + varinv[ichan][iloc] * term);
-            out[ichan][iloc] = sqrt(1.0 / out[ichan][iloc]);
+            out[ichan][iloc] = std::sqrt(1.0 / out[ichan][iloc]);
           }
         }
       }

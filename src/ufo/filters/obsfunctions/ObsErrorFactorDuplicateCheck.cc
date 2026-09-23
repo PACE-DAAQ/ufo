@@ -13,10 +13,13 @@
 
 #include <algorithm>
 #include <cmath>
+#include <numeric>
 
 #include "eckit/exception/Exceptions.h"
 #include "eckit/mpi/Comm.h"
+#include "ioda/distribution/Distribution.h"
 #include "ioda/ObsDataVector.h"
+#include "ioda/ObsSpace.h"
 #include "oops/util/DateTime.h"
 #include "oops/util/Logger.h"
 #include "oops/util/missingValues.h"
@@ -41,16 +44,15 @@ ObsErrorFactorDuplicateCheck::ObsErrorFactorDuplicateCheck(const eckit::Configur
   options_->deserialize(config);
   const std::string errgrp = options_->original_obserr.value();
   const std::string flaggrp = options_->testQCflag.value();
-  const bool use_air_pres = options_->use_air_pressure.value();
   const std::string var = options_->variable.value();
 
   // Include list of required data from MetaData
-  invars_ += Variable(var+"@"+errgrp);
-  invars_ += Variable(var+"@PreUseFlag");
-  invars_ += Variable("latitude@MetaData");
-  invars_ += Variable("longitude@MetaData");
-  invars_ += Variable("dateTime@MetaData");
-  invars_ += Variable("pressure@MetaData");
+  invars_ += Variable(errgrp+"/"+var);
+  invars_ += Variable(flaggrp+"/"+var);
+  invars_ += Variable("MetaData/latitude");
+  invars_ += Variable("MetaData/longitude");
+  invars_ += Variable("MetaData/dateTime");
+  invars_ += Variable("MetaData/pressure");
 }
 
 // -----------------------------------------------------------------------------
@@ -67,7 +69,7 @@ std::vector<T> ObsErrorFactorDuplicateCheck::getGlobalVariable(const ObsFilterDa
                                                       const std::string &variable) const {
   auto & obsdb = data.obsspace();
   std::vector<T> values(obsdb.nlocs());
-  data.get(Variable(variable+"@"+group), values);
+  data.get(Variable(group+"/"+variable), values);
   obsdb.distribution()->allGatherv(values);
   return values;
 }
@@ -100,41 +102,38 @@ void ObsErrorFactorDuplicateCheck::compute(const ObsFilterData & data,
 
   // Get local and global arrays for variables
   std::vector<float> lat_local(nlocs);
-  data.get(Variable("latitude@MetaData"), lat_local);
+  data.get(Variable("MetaData/latitude"), lat_local);
   std::vector<float> lat_global = getGlobalVariable<float>(data, "MetaData", "latitude");
 
   std::vector<float> lon_local(nlocs);
-  data.get(Variable("longitude@MetaData"), lon_local);
+  data.get(Variable("MetaData/longitude"), lon_local);
   std::vector<float> lon_global = getGlobalVariable<float>(data, "MetaData", "longitude");
 
   std::vector<util::DateTime> datetime_local(nlocs);
-  data.get(Variable("dateTime@MetaData"), datetime_local);
+  data.get(Variable("MetaData/dateTime"), datetime_local);
   std::vector<util::DateTime> datetime_global =
                           getGlobalVariable<util::DateTime>(data, "MetaData", "dateTime");
 
   std::vector<float> pres_local(nlocs);
-  data.get(Variable("pressure@MetaData"), pres_local);
+  data.get(Variable("MetaData/pressure"), pres_local);
   std::vector<float> pres_global = getGlobalVariable<float>(data, "MetaData", "pressure");
 
   std::vector<int> qcflag_local(nlocs);
-  data.get(Variable(var+"@PreUseFlag"), qcflag_local);
-  std::vector<int> qcflag_global = getGlobalVariable<int>(data, "PreUseFlag", var);
+  const std::string flaggrp = options_->testQCflag.value();
+  data.get(Variable(flaggrp+"/"+var), qcflag_local);
+  std::vector<int> qcflag_global = getGlobalVariable<int>(data, flaggrp, var);
 
   std::vector<float> currentObserr(nlocs);
   const std::string errgrp = options_->original_obserr.value();
-  data.get(Variable(var+"@"+errgrp), currentObserr);
-
-  std::vector<int> qcflagdata(nlocs);
-  const std::string flaggrp = options_->testQCflag.value();
-  data.get(Variable(var+"@"+flaggrp), qcflagdata);
+  data.get(Variable(errgrp+"/"+var), currentObserr);
 
   // Duplicate set up
   std::vector<double> dup(qcflag_local.size(), 1);
   std::vector<int> inds;
   std::vector<int> inds_global;
   double tfact;
-  double dfact = 0.75;
-  double dfact1 = 3.0;
+  double duplicate_retention_weight = options_->duplicate_retention_weight.value();
+  double time_window_hours = options_->time_window_hours.value();
   double one = 1.0;
   double hours_to_seconds = 3600.0;
 
@@ -149,7 +148,6 @@ void ObsErrorFactorDuplicateCheck::compute(const ObsFilterData & data,
 
   int qc_len_local = inds.size();
   int qc_len_global = inds_global.size();
-  int obserr_rank = obsdb.comm().rank();
 
   // Option to use pressure
   if (use_air_pres) {
@@ -160,14 +158,14 @@ void ObsErrorFactorDuplicateCheck::compute(const ObsFilterData & data,
            (pres_local[inds[iobs]] == pres_global[inds_global[jobs]])) {
             // If not equal to itself
             if (inds_global[jobs] != (inds[iobs] + displ)) {
-               tfact = std::min(one, (abs(((datetime_local[inds[iobs]] -
+               tfact = std::min(one, (std::abs(((datetime_local[inds[iobs]] -
                                       datetime_global[inds_global[jobs]]).toSeconds()))/
-                                      hours_to_seconds)/dfact1);
-               dup[inds[iobs]] = dup[inds[iobs]]+1.0-tfact*tfact*(1.0-dfact);
+                                      hours_to_seconds)/time_window_hours);
+               dup[inds[iobs]] = dup[inds[iobs]]+1.0-tfact*tfact*(1.0-duplicate_retention_weight);
             }
         }
       }
-      if (dup[inds[iobs]] > 1 ) obserr[0][inds[iobs]] = sqrt(dup[inds[iobs]]);
+      if (dup[inds[iobs]] > 1 ) obserr[0][inds[iobs]] = std::sqrt(dup[inds[iobs]]);
   }
   } else {
     for (size_t iobs = 0; iobs < qc_len_local; ++iobs) {
@@ -175,14 +173,14 @@ void ObsErrorFactorDuplicateCheck::compute(const ObsFilterData & data,
         if ( (lat_local[inds[iobs]] == lat_global[inds_global[jobs]]) &&
              (lon_local[inds[iobs]] == lon_global[inds_global[jobs]]) ) {
             if (inds_global[jobs] != (inds[iobs] + displ)) {
-               tfact = std::min(one, (abs(((datetime_local[inds[iobs]] -
+               tfact = std::min(one, (std::abs(((datetime_local[inds[iobs]] -
                                       datetime_global[inds_global[jobs]]).toSeconds()))/
-                                      hours_to_seconds)/dfact1);
-               dup[inds[iobs]] = dup[inds[iobs]]+1.0-tfact*tfact*(1.0-dfact);
+                                      hours_to_seconds)/time_window_hours);
+               dup[inds[iobs]] = dup[inds[iobs]]+1.0-tfact*tfact*(1.0-duplicate_retention_weight);
             }
         }
       }
-      if ( dup[inds[iobs]] > 1 ) obserr[0][inds[iobs]] = sqrt(dup[inds[iobs]]);
+      if ( dup[inds[iobs]] > 1 ) obserr[0][inds[iobs]] = std::sqrt(dup[inds[iobs]]);
     }
   }
   oops::Log::trace() << "ObsErrorFactorDuplicateCheck compute complete" << std::endl;

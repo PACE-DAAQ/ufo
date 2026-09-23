@@ -16,6 +16,7 @@
 
 #include "ioda/ObsDataVector.h"
 #include "oops/util/IntSetParser.h"
+#include "oops/util/Logger.h"
 #include "oops/util/missingValues.h"
 #include "ufo/filters/ObsFilterData.h"
 #include "ufo/filters/Variable.h"
@@ -86,7 +87,7 @@ void HydrometeorCheckAMSUA::compute(const ObsFilterData & in,
 
   // Set channel index
   int ich238 = 0, ich314 = 1, ich503 = 2, ich528 = 3, ich536 = 4;
-  int ich544 = 5, ich549 = 6, ich890 = 14;
+  int ich544 = 5, ich890 = 14;
 
   // Get test groups from options
   const std::string &biastermgrp = options_.testBiasTerm.value();
@@ -184,7 +185,7 @@ void HydrometeorCheckAMSUA::compute(const ObsFilterData & in,
 
   // Set parameters
   float w1f6 = 1.0/10.0, w2f6 = 1.0/0.80;
-  float w1f4 = 1.0/0.30, w2f4 = 1.0/1.80;
+  float w2f4 = 1.0/1.80;
 
   std::vector<std::vector<int>> affected_channels(nchans, std::vector<int>(nlocs));
   // Loop over locations
@@ -209,7 +210,7 @@ void HydrometeorCheckAMSUA::compute(const ObsFilterData & in,
     float tmp = innov[ich528][iloc] * w2f4;
     tmp = tmp * tmp;
     float factch4 = clwx * clwx + tmp;
-    float factch6 = pow(dsval, 2) + pow(innov[ich544][iloc] * w2f6, 2);
+    float factch6 = std::pow(dsval, 2) + std::pow(innov[ich544][iloc] * w2f6, 2);
 
     // Hydrometeor check over water surface
     if (water_frac[iloc] > 0.99) {

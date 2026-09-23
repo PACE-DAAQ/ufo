@@ -2,12 +2,13 @@
 ! This software is licensed under the terms of the Apache Licence Version 2.0
 ! which can be obtained at http://www.apache.org/licenses/LICENSE-2.0.
 
-!> Fortran module containing the routines to perform a Marquardt-Levenberg 
+!> Fortran module containing the routines to perform a Marquardt-Levenberg
 !! minimization.
 
 module ufo_rttovonedvarcheck_minimize_ml_mod
 
 use kinds
+use missing_values_mod
 use ufo_constants_mod, only: zero, ten
 use fckit_log_module, only : fckit_log
 use ufo_geovals_mod
@@ -124,6 +125,7 @@ real(kind_real)                 :: JcostOld        ! previous iteration cost val
 real(kind_real)                 :: JcostOrig       ! initial cost value
 real(kind_real)                 :: DeltaJ          ! change in cost during iteration
 real(kind_real)                 :: DeltaJo         ! change in cost from original
+real(kind_real)                 :: missing_real
 
 real(kind_real), allocatable    :: OldProfile(:)
 real(kind_real), allocatable    :: GuessProfile(:)
@@ -152,6 +154,7 @@ nchans = size(ob % channels_used)
 Gamma = 1.0e-4_kind_real
 Jcost = 1.0e4_kind_real
 JcostOld = 1.0e4_kind_real
+missing_real = missing_value(missing_real)
 nprofelements = profile_index % nprofelements
 allocate(OldProfile(nprofelements))
 allocate(GuessProfile(nprofelements))
@@ -185,7 +188,7 @@ Iterations: do iter = 1, config % max1DVarIterations
       call r_matrix % reset_errors(config % ConvergeCheckChans, 100000.0_kind_real)
       ob % QC_SlowConvChans = .true.
     end if
-  endif
+  end if
 
   !-------------------------
   ! 1. Generate new profile
@@ -204,7 +207,7 @@ Iterations: do iter = 1, config % max1DVarIterations
     exit Iterations
   end if
 
-  if (iter == 1) then    
+  if (iter == 1) then
     Diffprofile(:) = zero
     BackProfile(:) = GuessProfile(:)
     Y0(:) = Y(:)
@@ -317,7 +320,7 @@ Iterations: do iter = 1, config % max1DVarIterations
   ! Update geovals to be the same as guess profile
   call ufo_rttovonedvarcheck_ProfVec2GeoVaLs(geovals, config, profile_index, &
                                              ob, GuessProfile)
-  
+
   ! if qtotal in retrieval vector check cloud
   ! variables for current iteration
 
@@ -354,14 +357,14 @@ Iterations: do iter = 1, config % max1DVarIterations
   !---------------------
 
   if (config % FullDiagnostics) then
-    write (*, '(A,I0)') 'Iteration', iter
-    write (*, '(A)') '------------'
-    write (*, '(A,L1)') 'Status: converged = ', Converged
-    if (outOfRange) write (*, '(A)') 'exiting with bad increments'
-    write (*, '(A)') 'New profile:'
+    write (*, "(A,I0)") "Iteration", iter
+    write (*, "(A)") "------------"
+    write (*, "(A,L1)") "Status: converged = ", Converged
+    if (outOfRange) write (*, "(A)") "exiting with bad increments"
+    write (*, "(A)") "New profile:"
     call ufo_geovals_print(geovals, 1)
     call ob % info()
-    write (*, '(A)')
+    write (*, "(A)")
   end if
 
   ! exit conditions
@@ -376,6 +379,9 @@ onedvar_success = converged
 ! Put final values in the ob structure
 ob % final_cost = Jcost
 ob % niter = iter
+
+! Reset the transmittance to missing so that if its not converged its always the same
+if (allocated(ob % transmittance)) ob % transmittance(:) = missing_real
 
 ! Pass output profile, final BTs and final cost out
 if (converged) then
@@ -397,7 +403,7 @@ if (converged) then
     call ufo_geovals_get_var(geovals, var_clw, geoval)
     ob % clw = geoval%vals(:, 1)
   end if
-  
+
   ! Recalculate final BTs for all channels
   call ufo_rttovonedvarcheck_get_bts(config, geovals, ob, ob % channels_all, &
                                      rttov_simobs, ob % output_BT)
@@ -440,7 +446,7 @@ end if
 !----------------------
 
 if (config % UseJForConvergence .and. config % FullDiagnostics) then
-  write(*,'(A45,3F10.3,I5,L5)') "ML J initial, final, lowest, iter, converged = ", &
+  write(*,"(A45,3F10.3,I5,L5)") "ML J initial, final, lowest, iter, converged = ", &
                                  JCostorig, Jcost,  Jcost, iter, onedvar_success
 end if
 
@@ -461,7 +467,7 @@ if (allocated(Y0))                 deallocate(Y0)
 end subroutine ufo_rttovonedvarcheck_minimize_ml
 
 !---------------------------------------------------------------------
-!> Updates the profile vector during the Marquardt-Levenberg 
+!> Updates the profile vector during the Marquardt-Levenberg
 !! minimization.
 !!
 !! \details Heritage: Ops_SatRad_MarquardtLevenberg_RTTOV12.f90
@@ -554,7 +560,7 @@ real(kind_real), intent(inout)          :: Jold            !< previous steps cos
 integer, intent(out)                    :: Status          !< code to capture failed Cholesky decomposition
 
 ! Local declarations:
-character(len=*), parameter         :: RoutineName = 'ufo_rttovonedvarcheck_ML'
+character(len=*), parameter         :: RoutineName = "ufo_rttovonedvarcheck_ML"
 integer                             :: i
 integer                             :: Iter_ML             ! M-L iteration count
 real(kind_real)                     :: JOut(3)             ! J, Jb, Jo

@@ -1,4 +1,4 @@
-# (C) Copyright 2017-2018 UCAR.
+# (C) Copyright 2017-2026 UCAR.
 #
 # This software is licensed under the terms of the Apache Licence Version 2.0
 # which can be obtained at http://www.apache.org/licenses/LICENSE-2.0.
@@ -22,6 +22,8 @@ set ( filters_files
       DiagnosticFlag.h
       DifferenceCheck.cc
       DifferenceCheck.h
+      DuplicateThinning.cc
+      DuplicateThinning.h
       EnsembleStatistics.cc
       EnsembleStatistics.h
       FilterBase.cc
@@ -30,8 +32,8 @@ set ( filters_files
       FilterParametersBase.h
       FilterUtils.cc
       FilterUtils.h
-      FinalCheck.cc
-      FinalCheck.h
+      FindNearestNeighbors.cc
+      FindNearestNeighbors.h
       GenericFilterParameters.h
       GeoVaLsWriter.cc
       GeoVaLsWriter.h
@@ -78,6 +80,8 @@ set ( filters_files
       ObsDomainErrCheck.h
       ObsFilterData.cc
       ObsFilterData.h
+      ObsPolygonCheck.cc
+      ObsPolygonCheck.h
       ObsRefractivityGradientCheck.h
       ObsRefractivityGradientCheck.cc
       ParameterSubstitution.cc
@@ -89,10 +93,11 @@ set ( filters_files
       ProcessAMVQI.cc
       ProcessAMVQI.h
       QCflags.h
-      QCmanager.cc
-      QCmanager.h
       PerformAction.cc
       PerformAction.h
+      UseNearestNeighbors.cc
+      UseNearestNeighbors.h
+      UseNearestNeighborsParameters.h
       ProfileAverageObsToModLevels.cc
       ProfileAverageObsToModLevels.h
       AverageObsToGeoValLevels.cc
@@ -105,17 +110,30 @@ set ( filters_files
       ProfileMaxDifferenceCheck.h
       ProfileUnFlagObsCheck.cc
       ProfileUnFlagObsCheck.h
+      RecordThresholdRejection.cc
+      RecordThresholdRejection.h
       SatName.h
       SatName.cc
       SatwindInversionCorrection.cc
       SatwindInversionCorrection.h
+      SharedListCheck.cc
+      SharedListCheck.h
+      SharedListStore.cc
+      SharedListStore.h
       SpikeAndStepCheck.cc
       SpikeAndStepCheck.h
+      StepCheck.cc
+      StepCheck.h
+      StepCheckParameters.h
       StuckCheck.cc
       StuckCheck.h
       StuckCheckParameters.h
+      Percentile.cc
+      Percentile.h
+      PercentileParameters.h
       SuperOb.h
       SuperOb.cc
+      SuperObParameters.h
       SuperRefractionCheckImpactParameter.h
       SuperRefractionCheckImpactParameter.cc
       SuperRefractionCheckNBAM.h
@@ -181,6 +199,8 @@ set ( filters_files
       actions/PassivateObs.h
       actions/ReduceObsSpace.cc
       actions/ReduceObsSpace.h
+      actions/RecordActionUtils.cc
+      actions/RecordActionUtils.h
       actions/RejectObs.cc
       actions/RejectObs.h
       actions/ROobserrInflation.cc
@@ -257,6 +277,10 @@ set ( filters_files
       obsfunctions/CloudDetectMinResidualIR.h
       obsfunctions/CloudFirstGuessMinimumResidual.cc
       obsfunctions/CloudFirstGuessMinimumResidual.h
+      obsfunctions/CircularDifference.cc
+      obsfunctions/CircularDifference.h
+      obsfunctions/LocationToObsSpace.cc
+      obsfunctions/LocationToObsSpace.h
       obsfunctions/MetOfficeAllSkyErrorModel.cc
       obsfunctions/MetOfficeAllSkyErrorModel.h
       obsfunctions/ModelHeightAdjustedWindVectorComponent.cc
@@ -265,6 +289,8 @@ set ( filters_files
       obsfunctions/ModelHeightAdjustedAirTemperature.h
       obsfunctions/ModelHeightAdjustedRelativeHumidity.cc
       obsfunctions/ModelHeightAdjustedRelativeHumidity.h
+      obsfunctions/ModelHeightAdjustedSpecificHumidity.cc
+      obsfunctions/ModelHeightAdjustedSpecificHumidity.h
       obsfunctions/ModelHeightAdjustedMarineWind.cc
       obsfunctions/ModelHeightAdjustedMarineWind.h
       obsfunctions/MPIRank.cc
@@ -325,6 +351,10 @@ set ( filters_files
       obsfunctions/SatwindIndivErrors.h
       obsfunctions/SatWindsLNVDCheck.cc
       obsfunctions/SatWindsLNVDCheck.h
+      obsfunctions/Statistic.cc
+      obsfunctions/Statistic.h
+      obsfunctions/TimeBinner.cc
+      obsfunctions/TimeBinner.h
       obsfunctions/WindsSPDBCheck.cc
       obsfunctions/WindsSPDBCheck.h
       obsfunctions/SatWindsErrnormCheck.cc
@@ -333,8 +363,8 @@ set ( filters_files
       obsfunctions/ScatWindsAmbiguityCheck.h
       obsfunctions/SCATRetMW.cc
       obsfunctions/SCATRetMW.h
-      obsfunctions/SymmCldImpactIR.cc
-      obsfunctions/SymmCldImpactIR.h
+      obsfunctions/SymmCldImpact.cc
+      obsfunctions/SymmCldImpact.h
       obsfunctions/SolarZenith.cc
       obsfunctions/SolarZenith.h
       obsfunctions/StableLayersCloudTopPressure.cc
@@ -366,8 +396,12 @@ set ( filters_files
       obsfunctions/ProfileAverageObsPressure.h
       obsfunctions/ProfileLevelCount.cc
       obsfunctions/ProfileLevelCount.h
+      obsfunctions/ProfileVerticalSmoothing.cc
+      obsfunctions/ProfileVerticalSmoothing.h
       obsfunctions/DateTimeOffset.cc
       obsfunctions/DateTimeOffset.h
+      obsfunctions/LinearTimeInterpolate.cc
+      obsfunctions/LinearTimeInterpolate.h
       obsfunctions/FillAveragedProfileData.cc
       obsfunctions/FillAveragedProfileData.h
       obsfunctions/MetOfficeRelativeHumidityCorrection.cc

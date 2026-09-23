@@ -1,10 +1,11 @@
 /*
- * (C) Copyright 2021 UCAR
+ * (C) Copyright 2021-2026 UCAR
  *
  * This software is licensed under the terms of the Apache Licence Version 2.0
  * which can be obtained at http://www.apache.org/licenses/LICENSE-2.0.
  */
 
+#include <cmath>
 #include <fstream>
 #include <iomanip>
 #include <string>
@@ -47,9 +48,8 @@ CloudLiquidWater::CloudLiquidWater(const Parameters_ & parameters, const oops::O
   options_ = parameters;
   const std::string &sensor = options_.sensor.value();
 
-  // Currently the code is designed only for SSMIS brightness temperatures from
-  // channels 12 through 18, but a different sensor could use a different list of
-  // channels and frequencies requiring a different block of input checks.
+  // Different sensor use different list of channels and frequencies,
+  // so different block of input check is needed.
   if (sensor == "SSMIS") {
     ASSERT(options_.ch19h.value() != boost::none && options_.ch19v.value() != boost::none &&
            options_.ch22v.value() != boost::none && options_.ch37h.value() != boost::none &&
@@ -71,6 +71,9 @@ CloudLiquidWater::CloudLiquidWater(const Parameters_ & parameters, const oops::O
     channels_ = {options_.ch238d.value().get(), options_.ch314d.value().get()};
     ASSERT(options_.ch238d.value().get() != 0 && options_.ch314d.value().get() != 0 &&
            channels_.size() == 2);
+    geovars_ += oops::Variables({oops::Variable{"water_area_fraction"},
+                              oops::Variable{"average_surface_temperature_within_field_of_view"}});
+    hdiags_ += oops::ObsVariables({"brightness_temperature"}, vars.channels());
 
   } else if (sensor == "GMI_GPM" || sensor == "gmi_gpm") {
     ASSERT((options_.ch37v.value() != boost::none && options_.ch37h.value() != boost::none) ||
@@ -113,22 +116,15 @@ CloudLiquidWater::CloudLiquidWater(const Parameters_ & parameters, const oops::O
     oops::Log::error() << errString;
     throw eckit::BadValue(errString);
   }
-
-  // required variables
-  if (sensor == "AMSUA" || sensor == "ATMS") {
-    geovars_ += oops::Variables({oops::Variable{"water_area_fraction"},
-                              oops::Variable{"average_surface_temperature_within_field_of_view"}});
-    hdiags_ += oops::ObsVariables({"brightness_temperature"}, vars.channels());
-  }
 }
 
 // -----------------------------------------------------------------------------
 
 void CloudLiquidWater::compute(const ioda::ObsSpace & odb,
-                             const GeoVaLs & geovals,
-                             const ObsDiagnostics & ydiags,
-                             const ObsBias & biascoeffs,
-                             ioda::ObsVector & out) const {
+                               const GeoVaLs & geovals,
+                               const ObsDiagnostics & ydiags,
+                               const ObsBias & biascoeffs,
+                               ioda::ObsVector & out) const {
   // Get required parameters
   const std::string &vargrp = options_.varGroup.value();
   const std::string &sensor = options_.sensor.value();
@@ -137,6 +133,10 @@ void CloudLiquidWater::compute(const ioda::ObsSpace & odb,
 
   const float fmiss = util::missingValue<float>();
   const double dmiss = util::missingValue<double>();
+
+  // Locations where any brightness temperature read from ObsValue/brightnessTemperature
+  // is missing. clw (and clw_gmi_ch1_4) is forced to fmiss at these locations.
+  std::vector<bool> btMissing(nlocs, false);
 
   std::vector<float> bt19h, bt19v, bt22v, bt37h, bt37v, bt91v, bt91h;
   if (sensor == "SSMIS") {
@@ -156,6 +156,14 @@ void CloudLiquidWater::compute(const ioda::ObsSpace & odb,
     odb.get_db(vargrp, "brightnessTemperature", bt37v, {channels_[4]});
     odb.get_db(vargrp, "brightnessTemperature", bt91v, {channels_[5]});
     odb.get_db(vargrp, "brightnessTemperature", bt91h, {channels_[6]});
+
+    for (std::size_t iloc = 0; iloc < nlocs; ++iloc) {
+      if (bt19h[iloc] == fmiss || bt19v[iloc] == fmiss || bt22v[iloc] == fmiss ||
+          bt37h[iloc] == fmiss || bt37v[iloc] == fmiss || bt91v[iloc] == fmiss ||
+          bt91h[iloc] == fmiss) {
+        btMissing[iloc] = true;
+      }
+    }
   }
 
   std::vector<float> bt238o, bt314o, bt238f, bt314f, bt238fBC, bt314fBC;
@@ -179,13 +187,20 @@ void CloudLiquidWater::compute(const ioda::ObsSpace & odb,
 
     std::vector<float> scanangle(nlocs);
     odb.get_db("MetaData", "sensorViewAngle", scanangle);
-
+    for (std::size_t iloc = 0; iloc < nlocs; ++iloc) {
+      if (bt238o[iloc] == fmiss || bt314o[iloc] == fmiss || bt238f[iloc] == fmiss
+          || bt314f[iloc] == fmiss || scanangle[iloc] == fmiss
+          || std::isnan(bt238f[iloc]) || std::isnan(bt314f[iloc])) {
+        btMissing[iloc] = true;
+      }
+    }
     ASSERT(biascoeffs.nrecs() == 1);
 
     const Predictors & predictors = biascoeffs.predictors();
     const std::size_t npreds = predictors.size();
     double beta1, beta2;
     for (std::size_t jloc = 0; jloc < nlocs; ++jloc) {
+      if (btMissing[jloc]) continue;
       beta1 = biascoeffs(0, channels_[0]-1, 0);
       beta2 = biascoeffs(0, channels_[1]-1, 0);
       bt238fBC[jloc] = bt238f[jloc] + beta1;
@@ -193,8 +208,8 @@ void CloudLiquidWater::compute(const ioda::ObsSpace & odb,
       for (std::size_t jord = 0; jord < 4; ++jord) {
         beta1 = biascoeffs(0, channels_[0]-1, npreds-jord-1);
         beta2 = biascoeffs(0, channels_[1]-1, npreds-jord-1);
-        bt238fBC[jloc] += beta1 * pow(scanangle[jloc] * Constants::deg2rad, jord+1);
-        bt314fBC[jloc] += beta2 * pow(scanangle[jloc] * Constants::deg2rad, jord+1);
+        bt238fBC[jloc] += beta1 * std::pow(scanangle[jloc] * Constants::deg2rad, jord+1);
+        bt314fBC[jloc] += beta2 * std::pow(scanangle[jloc] * Constants::deg2rad, jord+1);
       }
     }
   }
@@ -232,6 +247,11 @@ void CloudLiquidWater::compute(const ioda::ObsSpace & odb,
     odb.get_db("ObsValue", "brightnessTemperature", bt37v, {channels_[jch37v]});
     odb.get_db("ObsValue", "brightnessTemperature", bt37h, {channels_[jch37h]});
 
+    for (std::size_t iloc = 0; iloc < nlocs; ++iloc) {
+      if (bt37v[iloc] == fmiss || bt37h[iloc] == fmiss) {
+        btMissing[iloc] = true;
+      }
+    }
     std::vector<float> bt_hofx_37vo(nlocs), bt_hofx_37ho(nlocs);
     ydiags.get(bt_hofx_37vo, "brightness_temperature_" + std::to_string(channels_[jch37v]));
     ydiags.get(bt_hofx_37ho, "brightness_temperature_" + std::to_string(channels_[jch37h]));
@@ -287,22 +307,49 @@ void CloudLiquidWater::compute(const ioda::ObsSpace & odb,
       }
     }
 
+    // btMissing checks missing ObsValue brightness temperatures. Now check for
+    // locations where any of the other inputs to clw_bias_correction_gmi is missing or NaN.
+    const auto isBadGmi = [fmiss](float v) { return v == fmiss || std::isnan(v); };
+    for (std::size_t iloc = 0; iloc < nlocs; ++iloc) {
+      if (btMissing[iloc]) continue;
+      bool missingInput = isBadGmi(bt_hofx_37vo[iloc]) || isBadGmi(bt_hofx_37ho[iloc]) ||
+                          isBadGmi(bt_clr_37vo[iloc]) || isBadGmi(bt_clr_37ho[iloc]) ||
+                          isBadGmi(tsavg5[iloc]);
+      for (std::size_t lev = 0; lev < nlevs && !missingInput; ++lev) {
+        missingInput = isBadGmi(tvp[lev][iloc]) ||
+                       isBadGmi(ptau5[jch37v][lev][iloc]) || isBadGmi(ptau5[jch37h][lev][iloc]);
+      }
+      if (missingInput) {
+        btMissing[iloc] = true;
+      }
+    }
+
     clw_bias_correction_gmi(biascoeffs,
-                          bt_hofx_37vo, bt_hofx_37ho, bt_clr_37vo, bt_clr_37ho, bt37v, bt37h,
-                           water_frac, tsavg5, scanpos, ptau5, tvp, tlap, channels_, nlevs,
-                           clw, clw_gmi_ch1_4);
+                            bt_hofx_37vo, bt_hofx_37ho, bt_clr_37vo, bt_clr_37ho, bt37v, bt37h,
+                            water_frac, tsavg5, scanpos, ptau5, tvp, tlap, channels_, nlevs,
+                            clw, clw_gmi_ch1_4);
   }
   if (sensor == "AMSUA" || sensor == "ATMS") {
     CloudLiquidWater::clwDerivative_amsua(tsavg, water_frac, bt238o, bt314o,
                                           bt238fBC, bt314fBC, clw);
   }
+
+  // Force clw (and clw_gmi_ch1_4) to missing at any location where a required brightness
+  // temperature was missing, regardless of what the retrieval above computed.
+  for (std::size_t iloc = 0; iloc < nlocs; ++iloc) {
+    if (btMissing[iloc]) {
+      clw[iloc] = fmiss;
+      clw_gmi_ch1_4[iloc] = fmiss;
+    }
+  }
+
   if (sensor != "GMI_GPM" && sensor != "gmi_gpm") {
     for (std::size_t iloc = 0; iloc < nlocs; ++iloc) {
       for (std::size_t jvar = 0; jvar < nvars; ++jvar) {
-        float cossza = cos(Constants::deg2rad * szas[iloc]);
-        if (clw[iloc] == fmiss) {
+        if (clw[iloc] == fmiss || szas[iloc] == fmiss) {
           out[iloc*nvars + jvar] = dmiss;
         } else {
+          float cossza = std::cos(Constants::deg2rad * szas[iloc]);
           out[iloc*nvars + jvar] = static_cast<double>(clw[iloc]*cossza*cossza);
         }
       }
@@ -311,9 +358,11 @@ void CloudLiquidWater::compute(const ioda::ObsSpace & odb,
     for (std::size_t iloc = 0; iloc < nlocs; ++iloc) {
       for (std::size_t jvar = 0; jvar < nvars; ++jvar) {
         if (vars_.channels()[jvar] >= 4) {
-          out[iloc*nvars + jvar] = static_cast<double>(pow(clw[iloc], order_));
+          out[iloc*nvars + jvar] = (clw[iloc] == fmiss) ?
+                  dmiss : static_cast<double>(pow(clw[iloc], order_));
         } else {
-          out[iloc*nvars + jvar] = static_cast<double>(pow(clw_gmi_ch1_4[iloc], order_));
+          out[iloc*nvars + jvar] = (clw_gmi_ch1_4[iloc] == fmiss) ?
+                  dmiss : static_cast<double>(pow(clw_gmi_ch1_4[iloc], order_));
         }
       }
     }
@@ -337,7 +386,6 @@ void CloudLiquidWater::clwDerivative_amsua(const std::vector<float> & tsavg,
   ///
   const float t0c = Constants::t0c;
   const float d1 = 0.754, d2 = -2.265;
-  const float c1 = 8.240, c2 = 2.622, c3 = 1.846;
   const float tbmax = 550.0, r284 = 284.0, r285 = 285.0;
   const float fmiss = util::missingValue<float>();
 
@@ -409,8 +457,8 @@ void CloudLiquidWater::clw_bias_correction_gmi(const ObsBias & biascoeffs,
       for (std::size_t jord = 0; jord < 4; ++jord) {
         beta1 = biascoeffs(0, channels_[jch37v]-1, id_pred[id_preds-jord-1]);
         beta2 = biascoeffs(0, channels_[jch37h]-1, id_pred[id_preds-jord-1]);
-        bias_37v[jloc] += beta1 * pow(scanpos[jloc] * Constants::deg2rad, jord+1);
-        bias_37h[jloc] += beta2 * pow(scanpos[jloc] * Constants::deg2rad, jord+1);
+        bias_37v[jloc] += beta1 * std::pow(scanpos[jloc] * Constants::deg2rad, jord+1);
+        bias_37h[jloc] += beta2 * std::pow(scanpos[jloc] * Constants::deg2rad, jord+1);
       }
     }
 
@@ -426,7 +474,7 @@ void CloudLiquidWater::clw_bias_correction_gmi(const ObsBias & biascoeffs,
                   (tvp[nlevs-k][jloc]-tvp[nlevs-k-2][jloc]);
       }
       bias_37v[jloc] += (biascoeffs(0, channels_[jvar]-1, id_pred[1]) *
-                        pow((tlapchn - tlap[jvar]), 2));
+                        std::pow((tlapchn - tlap[jvar]), 2));
       bias_37v[jloc] += (biascoeffs(0, channels_[jvar]-1, id_pred[2])*(tlapchn - tlap[jvar]));
 //    For channel_37h
       jvar = jch37h;
@@ -437,7 +485,7 @@ void CloudLiquidWater::clw_bias_correction_gmi(const ObsBias & biascoeffs,
                   (tvp[nlevs-k][jloc]-tvp[nlevs-k-2][jloc]);
       }
       bias_37h[jloc] += (biascoeffs(0, channels_[jvar]-1, id_pred[1]) *
-                        pow((tlapchn - tlap[jvar]), 2));
+                        std::pow((tlapchn - tlap[jvar]), 2));
       bias_37h[jloc] += (biascoeffs(0, channels_[jvar]-1, id_pred[2])*(tlapchn - tlap[jvar]));
     }
 //  End of tlap BC for GMI data
@@ -463,7 +511,7 @@ void CloudLiquidWater::clw_bias_correction_gmi(const ObsBias & biascoeffs,
       int cld_rbc_idx = 1;
 //    Copied from GSI subroutine: "radiance_mod.f90, radiance_ex_biascor_gmi()"
       if (clw_obs[iloc] > 0.05 || clw_hofx[iloc] > 0.05 ||
-          abs(clw_obs[iloc] - clw_hofx[iloc]) >= 0.001) {
+          std::abs(clw_obs[iloc] - clw_hofx[iloc]) >= 0.001) {
         cld_rbc_idx = 0;
       }
 //    For GMI channels 4-13

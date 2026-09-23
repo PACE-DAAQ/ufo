@@ -27,10 +27,15 @@
 #include "ioda/ObsSpace.h"
 #include "ioda/ObsVector.h"
 
+#include "oops/util/abor1_cpp.h"
 #include "oops/util/missingValues.h"
 
 #include "ufo/obslocalization/ObsHorLocParameters.h"
 #include "ufo/obslocalization/ObsLocalizationBase.h"
+
+namespace eckit::geometry {
+  class Point3;
+}
 
 namespace ufo {
 
@@ -45,6 +50,14 @@ class ObsHorLocalization: public ObsLocalizationBase<ITERATOR> {
   /// The lengthscale from ObsHorLocParameters is used.
   void computeLocalization(const ITERATOR &,
                            ioda::ObsVector & locvector) const override;
+
+  /// Compute localization values between two points (regardless of if those are MODEL/OBS
+  /// or OBS/OBS locations) and return the localization value. The lengthscale from
+  /// ObsHorLocParameters is used.
+  /// Return values should be between 0.0 and 1.0, inclusive, with 0 indicating that the points
+  /// are outside of localization.
+  double computeLocalization(const eckit::geometry::Point3 &,
+                             const eckit::geometry::Point3 &) const override;
 
  protected:
   struct LocalObs {
@@ -174,6 +187,18 @@ void ObsHorLocalization<ITERATOR>::computeLocalization(const ITERATOR & i,
 // -----------------------------------------------------------------------------
 
 template<typename ITERATOR>
+double ObsHorLocalization<ITERATOR>::computeLocalization(
+      const eckit::geometry::Point3 & p1,
+      const eckit::geometry::Point3 & p2) const {
+  eckit::geometry::Point2 p1_2(p1[0], p1[1]);
+  eckit::geometry::Point2 p2_2(p2[0], p2[1]);
+  double distance = atlas::util::Earth::distance(p1_2, p2_2);
+  return (distance >= options_.lengthscale) ? 0.0 : 1.0;
+}
+
+// -----------------------------------------------------------------------------
+
+template<typename ITERATOR>
 void ObsHorLocalization<ITERATOR>::localizeLocalObs(const ITERATOR & i,
                                               ioda::ObsVector & locvector,
                                               const LocalObs & localobs) const {
@@ -279,7 +304,8 @@ ObsHorLocalization<ITERATOR>::getLocalObs(const ITERATOR & i, double lengthscale
     eckit::geometry::Point3 refPoint3DTemp;
     atlas::util::Earth::convertSphericalToCartesian(refPoint2, refPoint3DTemp);
     double alpha =  (lengthscale / options_.radius_earth)/ 2.0;  // angle in radians
-    double chordLength = 2.0*options_.radius_earth * sin(alpha);  // search radius in 3D space
+    alpha = std::min(alpha, M_PI/2.0);  // Prevent alpha shrinking with increasing lengthscale
+    double chordLength = 2.0*options_.radius_earth * std::sin(alpha);  // search radius in 3D space
 
     auto closePoints = kd_->findInSphere(refPoint3DTemp, chordLength);
 

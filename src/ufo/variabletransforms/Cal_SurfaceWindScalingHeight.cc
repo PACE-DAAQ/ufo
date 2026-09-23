@@ -6,14 +6,15 @@
  * which can be obtained at http://www.apache.org/licenses/LICENSE-2.0.
  */
 
+#include "ufo/variabletransforms/Cal_SurfaceWindScalingHeight.h"
+
 #include <algorithm>
 #include <cmath>
 #include <string>
 
+#include "ioda/ObsSpace.h"
 #include "oops/util/missingValues.h"
-
 #include "ufo/GeoVaLs.h"
-#include "ufo/variabletransforms/Cal_SurfaceWindScalingHeight.h"
 
 namespace ufo {
 
@@ -28,8 +29,8 @@ namespace ufo {
   Cal_SurfaceWindScalingHeight::Cal_SurfaceWindScalingHeight(
                                 const Parameters_ &options,
                                 const ObsFilterData &data,
-                                const std::shared_ptr<ioda::ObsDataVector<int>> &flags,
-                                const std::shared_ptr<ioda::ObsDataVector<float>> &obserr) :
+                                ioda::ObsDataVector<int> &flags,
+                                ioda::ObsDataVector<float> &obserr) :
     TransformBase(options, data, flags, obserr), gvals_(),
     heightVariableGroup_(options.heightVariableGroup),
     heightVariableName_(options.heightVariableName)
@@ -37,7 +38,7 @@ namespace ufo {
     oops::Log::trace() << "Cal_SurfaceWindScalingHeight::Constructor start" << std::endl;
     // List of GeoVaLs this transform will need access to
     gvals_ += Variable("GeoVaLs/geopotential_height");
-    gvals_ += Variable("GeoVaLs/wind_reduction_factor_at_10m");
+    gvals_ += Variable("GeoVaLs/ratio_of_wind_at_surface_adjacent_layer_to_wind_at_10m");
     oops::Log::trace() << "Cal_SurfaceWindScalingHeight::Constructor done" << std::endl;
   }
 
@@ -81,8 +82,8 @@ namespace ufo {
     // -------------------------------------------------------------------------------------
     for (int iloc = 0; iloc < nlocs; ++iloc) {
       // Get the GeoVaLs at this location
-      gvals->getAtLocation(windReductionFactorAt10m, oops::Variable{"wind_reduction_factor_at_10m"},
-                                                                    iloc);
+      gvals->getAtLocation(windReductionFactorAt10m, oops::Variable{
+        "ratio_of_wind_at_surface_adjacent_layer_to_wind_at_10m"}, iloc);
       gvals->getAtLocation(geopotentialHeight, oops::Variable{"geopotential_height"}, iloc);
 
       // For values above lowest model level the scaling factor is 1

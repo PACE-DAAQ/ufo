@@ -5,6 +5,7 @@
  * which can be obtained at http://www.apache.org/licenses/LICENSE-2.0.
  */
 
+#include <cmath>
 #include <set>
 #include <utility>
 
@@ -47,7 +48,8 @@ namespace ufo {
    const std::string & average_name,
    const std::string & diagflags_name,
    const oops::Variable & geovals_testreference_name,
-   const oops::Variable & geovals_qcflags_name)
+   const oops::Variable & geovals_qcflags_name,
+   float geovals_scale)
   {
     const float missing = util::missingValue<float>();
 
@@ -58,6 +60,12 @@ namespace ufo {
     if (extended_obs_space) {
       std::vector<float>& averaged_values =
         profile.getGeoVaLVector(geovals_testreference_name);
+      if (geovals_scale != 1.0f) {
+        for (float & value : averaged_values) {
+          if (value != missing)
+            value *= geovals_scale;
+        }
+      }
       // Ensure all vectors are the correct size to be saved to the ObsSpace.
       const size_t numModelLevels = profile.getNumProfileLevels();
       averaged_values.resize(numModelLevels, missing);
@@ -172,9 +180,7 @@ namespace ufo {
                             const std::vector<int> &flags,
                             const std::vector<float> &hofx,
                             std::vector<float> &obs) {
-    const int64_t missingValInt = util::missingValue<int64_t>();  // size_t type
     const float missingValFloat = util::missingValue<float>();
-    const size_t nlocs_obs = locsOriginal.size();
     const size_t nlocs_ext = locsExt.size();
     const size_t nlocs = hofx.size();
 

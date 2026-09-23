@@ -30,12 +30,15 @@ namespace {
 
 /// Set each element of \p flagged to true if the corresponding element of \p apply is true
 /// and the corresponding element of \p testValues is a non-missing value lying outside the
-/// closed interval [\p minValue, \p maxValue].
+/// interval (\p minValue, \p maxValue). Interval endpoint behavior is controlled by \p minExclusive
+/// and \p maxExclusive.
 void flagWhereOutOfBounds(const std::vector<bool> & apply,
                           const std::vector<float> & testValues,
                           const float minValue,
                           const float maxValue,
                           const bool treatMissingAsOutOfBounds,
+                          const bool minExclusive,
+                          const bool maxExclusive,
                           std::vector<bool> &flagged) {
   const size_t nlocs = testValues.size();
   ASSERT(apply.size() == nlocs);
@@ -45,10 +48,12 @@ void flagWhereOutOfBounds(const std::vector<bool> & apply,
   for (size_t i = 0; i < nlocs; ++i) {
     if (apply[i]) {
       if (testValues[i] != missing) {
-        if (minValue != missing && testValues[i] < minValue)
-          flagged[i] = true;
-        if (maxValue != missing && testValues[i] > maxValue)
-          flagged[i] = true;
+        if (minValue != missing && testValues[i] <= minValue) {
+          if (testValues[i] < minValue || minExclusive) flagged[i] = true;
+        }
+        if (!flagged[i] && maxValue != missing && testValues[i] >= maxValue) {
+          if (testValues[i] > maxValue || maxExclusive) flagged[i] = true;
+        }
       } else {
         if (treatMissingAsOutOfBounds)
           flagged[i] = true;
@@ -62,8 +67,8 @@ void flagWhereOutOfBounds(const std::vector<bool> & apply,
 // -----------------------------------------------------------------------------
 
 ObsBoundsCheck::ObsBoundsCheck(ioda::ObsSpace & obsdb, const Parameters_ & parameters,
-                               std::shared_ptr<ioda::ObsDataVector<int> > flags,
-                               std::shared_ptr<ioda::ObsDataVector<float> > obserr)
+                               ioda::ObsDataVector<int> & flags,
+                               ioda::ObsDataVector<float> & obserr)
   : FilterBase(obsdb, parameters, flags, obserr), parameters_(parameters)
 {
   oops::Log::trace() << "ObsBoundsCheck constructor" << std::endl;
@@ -105,6 +110,8 @@ void ObsBoundsCheck::applyFilter(const std::vector<bool> & apply,
   const float missing = util::missingValue<float>();
   const float vmin = parameters_.minvalue.value().value_or(missing);
   const float vmax = parameters_.maxvalue.value().value_or(missing);
+  const bool minExclusive = parameters_.minExclusive.value();
+  const bool maxExclusive = parameters_.maxExclusive.value();
 
   // Determine the mode of operation.
   const bool flagAllFilterVarsIfAnyTestVarOutOfBounds =
@@ -136,13 +143,13 @@ void ObsBoundsCheck::applyFilter(const std::vector<bool> & apply,
       std::vector<bool> testAtLocations = apply;
       if (onlyTestGoodFilterVarsForFlagAllFilterVars) {
         for (size_t iloc=0; iloc < testAtLocations.size(); iloc++)
-          if ((*flags_)[filtervarslist[ifiltervar]][iloc] != QCflags::pass) {
+          if (flags_[filtervarslist[ifiltervar]][iloc] != QCflags::pass) {
             testAtLocations[iloc] = false;
           }
       }
       const std::vector<float> & testValues = singleChannelTestVar.values();
       flagWhereOutOfBounds(testAtLocations, testValues, vmin, vmax, treatMissingAsOutOfBounds,
-                           anyTestVarOutOfBounds);
+                           minExclusive, maxExclusive, anyTestVarOutOfBounds);
       ifiltervar++;
     }
     // Copy these flags to the flags of all filtered variables.
@@ -160,7 +167,7 @@ void ObsBoundsCheck::applyFilter(const std::vector<bool> & apply,
     for (PrimitiveVariable singleChannelTestVar : PrimitiveVariables(testvars, data_)) {
       const std::vector<float> & testValues = singleChannelTestVar.values();
       flagWhereOutOfBounds(apply, testValues, vmin, vmax, treatMissingAsOutOfBounds,
-                           flagged[ifiltervar++]);
+                           minExclusive, maxExclusive, flagged[ifiltervar++]);
     }
   }
   oops::Log::trace() << "ObsBoundsCheck applyFilter complete" << std::endl;

@@ -33,7 +33,9 @@ ObsGnssroRefMetOfficeTLAD::ObsGnssroRefMetOfficeTLAD(const ioda::ObsSpace & odb,
   ufo_gnssro_refmetoffice_tlad_setup_f90(keyOperGnssroRefMetOffice_,
                                          parameters.vertInterpOPS,
                                          parameters.pseudoLevels,
-                                         parameters.minTempGrad);
+                                         parameters.minTempGrad,
+                                         parameters.dryRefractivityConstant,
+                                         parameters.wetRefractivityConstant);
   const std::vector<std::string> vv{"air_pressure_levels",
                                     "water_vapor_mixing_ratio_wrt_moist_air",
                                     "geopotential_height", "geopotential_height_levels"};
@@ -62,7 +64,7 @@ void ObsGnssroRefMetOfficeTLAD::setTrajectory(const GeoVaLs & geovals, ObsDiagno
 // -----------------------------------------------------------------------------
 
 void ObsGnssroRefMetOfficeTLAD::simulateObsTL(
-        const GeoVaLs & geovals, ioda::ObsVector & ovec, const QCFlags_t & qc_flags) const {
+        const GeoVaLs & geovals, ioda::ObsVector & ovec) const {
   ufo_gnssro_refmetoffice_simobs_tl_f90(keyOperGnssroRefMetOffice_, geovals.toFortran(),
                                         obsspace(), ovec.size(), ovec.toFortran());
   oops::Log::trace() << "ObsGnssroRefMetOfficeTLAD::simulateObsTL done." << std::endl;
@@ -71,7 +73,7 @@ void ObsGnssroRefMetOfficeTLAD::simulateObsTL(
 // -----------------------------------------------------------------------------
 
 void ObsGnssroRefMetOfficeTLAD::simulateObsAD(
-        GeoVaLs & geovals, const ioda::ObsVector & ovec, const QCFlags_t & qc_flags) const {
+        GeoVaLs & geovals, const ioda::ObsVector & ovec) const {
   ufo_gnssro_refmetoffice_simobs_ad_f90(keyOperGnssroRefMetOffice_, geovals.toFortran(),
                                         obsspace(), ovec.size(), ovec.toFortran());
   oops::Log::trace() << "ObsGnssroRefMetOfficeTLAD::simulateObsAD done." << std::endl;

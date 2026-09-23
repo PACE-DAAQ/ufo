@@ -9,21 +9,19 @@
 
 module ufo_gnssro_refmetoffice_mod
 
-use iso_c_binding
+use, intrinsic :: iso_c_binding
 use kinds
 use ufo_vars_mod
 use ufo_geovals_mod
 use vert_interp_mod
-use obsspace_mod  
+use obsspace_mod
 use missing_values_mod
 use ufo_utils_refractivity_calculator, only: ufo_calculate_refractivity
-use fckit_log_module,  only : fckit_log
+use logger_mod, only: oops_log
 use ufo_constants_mod, only: &
     rd,                      &    ! Gas constant for dry air
     rd_over_rv,              &    ! Ratio of molecular weights of water and dry air
-    grav,                    &    ! Gravitational field strength
-    n_alpha,                 &    ! Refractivity constant a
-    n_beta                        ! Refractivity constant b
+    grav                          ! Gravitational field strength
 use gnssro_mod_transform, only: geometric2geop
 
 
@@ -36,6 +34,8 @@ type :: ufo_gnssro_RefMetOffice
   logical :: vert_interp_ops
   logical :: pseudo_ops
   real(kind_real) :: min_temp_grad
+  real(kind_real) :: dryRefractivityConstant
+  real(kind_real) :: wetRefractivityConstant
   contains
     procedure :: setup     => ufo_gnssro_refmetoffice_setup
     procedure :: simobs    => ufo_gnssro_refmetoffice_simobs
@@ -55,7 +55,8 @@ contains
 !! \date 20 March 2021
 !!
 !-------------------------------------------------------------------------------
-subroutine ufo_gnssro_refmetoffice_setup(self, vert_interp_ops, pseudo_ops, min_temp_grad)
+subroutine ufo_gnssro_refmetoffice_setup(self, vert_interp_ops, pseudo_ops, min_temp_grad, &
+                                        dryRefractivityConstant, wetRefractivityConstant)
 
 implicit none
 
@@ -63,10 +64,14 @@ class(ufo_gnssro_refmetoffice), intent(inout) :: self
 logical(c_bool), intent(in)  :: vert_interp_ops
 logical(c_bool), intent(in)  :: pseudo_ops
 real(c_float), intent(in)  :: min_temp_grad
+real(c_float), intent(in)  :: dryRefractivityConstant
+real(c_float), intent(in)  :: wetRefractivityConstant
 
 self % vert_interp_ops = vert_interp_ops
 self % pseudo_ops = pseudo_ops
 self % min_temp_grad = min_temp_grad
+self % dryRefractivityConstant = dryRefractivityConstant
+self % wetRefractivityConstant = wetRefractivityConstant
 
 end subroutine ufo_gnssro_refmetoffice_setup
 
@@ -112,8 +117,8 @@ subroutine ufo_gnssro_refmetoffice_simobs(self, geovals, obss, hofx, obs_diags)
   real(kind_real), allocatable       :: refractivity(:)       ! Refractivity on various model levels
   real(kind_real), allocatable       :: model_heights(:)      ! Geopotential heights that refractivity is calculated on
 
-  write(err_msg,*) "TRACE: ufo_gnssro_refmetoffice_simobs: begin"
-  call fckit_log%info(err_msg)
+  write(err_msg,*) "ufo_gnssro_refmetoffice_simobs: begin"
+  call oops_log%trace(err_msg)
 
   ! If output to refractivity (and heights of the refractivity levels) is needed,
   ! then use nval as a way to check whether the array has been initialised (since
@@ -121,24 +126,24 @@ subroutine ufo_gnssro_refmetoffice_simobs(self, geovals, obss, hofx, obs_diags)
   DO iVar = 1, obs_diags % nvar
     IF (obs_diags % variables(ivar) == "atmosphericRefractivity" .OR. &
         obs_diags % variables(ivar) == "geopotentialHeight") THEN
-      write(err_msg,*) "TRACE: ufo_gnssro_refmetoffice_simobs: initialising obs_diags for " // &
+      write(err_msg,*) "ufo_gnssro_refmetoffice_simobs: initialising obs_diags for " // &
         obs_diags % variables(ivar)
-      call fckit_log%info(err_msg)
+      call oops_log%trace(err_msg)
       obs_diags % geovals(iVar) % nval = 0
     END IF
   END DO
 
 ! check if nlocs is consistent in geovals & hofx
   if (geovals%nlocs /= size(hofx)) then
-      write(err_msg,*) myname_, ' error: nlocs inconsistent!'
+      write(err_msg,*) myname_, " error: nlocs inconsistent!"
       call abor1_ftn(err_msg)
-  endif
+  end if
 
-  write(message, *) myname_, ' Running Met Office GNSS-RO forward operator with:'
-  call fckit_log%info(message)
-  write(message, *) 'vert_interp_ops =', self % vert_interp_ops, &
-    'pseudo_ops =', self % pseudo_ops, 'min_temp_grad =', self % min_temp_grad
-  call fckit_log%info(message)
+  write(message, *) myname_, " Running Met Office GNSS-RO forward operator with:"
+  call oops_log%info(message)
+  write(message, *) "vert_interp_ops =", self % vert_interp_ops, &
+    "pseudo_ops =", self % pseudo_ops, "min_temp_grad =", self % min_temp_grad
+  call oops_log%info(message)
 
 ! get variables from geovals
   call ufo_geovals_get_var(geovals, var_q, q)               ! specific humidity
@@ -146,10 +151,10 @@ subroutine ufo_gnssro_refmetoffice_simobs(self, geovals, obss, hofx, obs_diags)
   call ufo_geovals_get_var(geovals, var_z, theta_heights)   ! Geopotential height of the normal model levels
   call ufo_geovals_get_var(geovals, var_zi, rho_heights)    ! Geopotential height of the pressure levels
 
-  write(message, '(A,10I6)') 'Q: ', q%nval, q%nprofiles, shape(q%vals)
-  call fckit_log%info(message)
-  write(message, '(A,10I6)') 'Pressure: ', prs%nval, prs%nprofiles, shape(prs%vals)
-  call fckit_log%info(message)
+  write(message, "(A,10I6)") "Q: ", q%nval, q%nprofiles, shape(q%vals)
+  call oops_log%info(message)
+  write(message, "(A,10I6)") "Pressure: ", prs%nval, prs%nprofiles, shape(prs%vals)
+  call oops_log%info(message)
 
   nobs  = obsspace_get_nlocs(obss)
 
@@ -169,7 +174,7 @@ subroutine ufo_gnssro_refmetoffice_simobs(self, geovals, obss, hofx, obs_diags)
     end if
   end do
 
-  obs_loop: do iobs = 1, nobs 
+  obs_loop: do iobs = 1, nobs
 
     call RefMetOffice_ForwardModel(prs % nval, &
                                    q % nval, &
@@ -180,6 +185,8 @@ subroutine ufo_gnssro_refmetoffice_simobs(self, geovals, obss, hofx, obs_diags)
                                    self % pseudo_ops, &
                                    self % vert_interp_ops, &
                                    self % min_temp_grad, &
+                                   self % dryRefractivityConstant, &
+                                   self % wetRefractivityConstant, &
                                    1, &
                                    obs_height(iobs:iobs), &
                                    hofx(iobs:iobs), &
@@ -189,7 +196,7 @@ subroutine ufo_gnssro_refmetoffice_simobs(self, geovals, obss, hofx, obs_diags)
 
     if (BAErr) then
       write(err_msg,*) "Error with observation processing ", iobs
-      call fckit_log % info(err_msg)
+      call oops_log % info(err_msg)
     end if
 
     ! If required, then save the refractivity and model heights to the obs diagnostics.
@@ -231,8 +238,8 @@ subroutine ufo_gnssro_refmetoffice_simobs(self, geovals, obss, hofx, obs_diags)
   deallocate(obsLon)
   deallocate(obs_height)
 
-  write(err_msg,*) "TRACE: ufo_gnssro_refmetoffice_simobs: completed"
-  call fckit_log%info(err_msg)
+  write(err_msg,*) "ufo_gnssro_refmetoffice_simobs: completed"
+  call oops_log%trace(err_msg)
 
 end subroutine ufo_gnssro_refmetoffice_simobs
 
@@ -257,6 +264,8 @@ SUBROUTINE RefMetOffice_ForwardModel(nlevp, &
                                      GPSRO_pseudo_ops, &
                                      GPSRO_vert_interp_ops, &
                                      GPSRO_min_temp_grad, &
+                                     dryRefractivityConstant, &
+                                     wetRefractivityConstant, &
                                      nobs, &
                                      zobs, &
                                      ycalc, &
@@ -264,33 +273,35 @@ SUBROUTINE RefMetOffice_ForwardModel(nlevp, &
                                      refractivity, &
                                      model_heights)
 
-INTEGER, INTENT(IN)            :: nlevp                  ! no. of p levels in state vec.
-INTEGER, INTENT(IN)            :: nlevq                  ! no. of theta levels
-REAL(kind_real), INTENT(IN)    :: za(1:nlevp)            ! geopotential heights of rho levs
-REAL(kind_real), INTENT(IN)    :: zb(1:nlevq)            ! geopotential heights of theta levs
-REAL(kind_real), INTENT(IN)    :: pressure(1:nlevp)      ! Model background pressure
-REAL(kind_real), INTENT(IN)    :: humidity(1:nlevq)      ! Model background specific humidity
-LOGICAL, INTENT(IN)            :: GPSRO_pseudo_ops       ! Option: Use pseudo-levels in vertical interpolation?
-LOGICAL, INTENT(IN)            :: GPSRO_vert_interp_ops  ! Option: Use ln(p) for vertical interpolation? (rather than exner)
-REAL(kind_real), INTENT(IN)    :: GPSRO_min_temp_grad    ! The minimum temperature gradient which is used
-INTEGER, INTENT(IN)            :: nobs                   ! Number of observations in the profile
-REAL(kind_real), INTENT(IN)    :: zobs(1:nobs)           ! Geopotential height of the obs
-REAL(kind_real), INTENT(INOUT) :: ycalc(1:nobs)          ! Model forecast of the observations
-LOGICAL, INTENT(OUT)           :: BAErr                  ! Was an error encountered during the calculation?
-REAL(kind_real), INTENT(INOUT), ALLOCATABLE :: refractivity(:)     ! Model refractivity on model/pseudo levels
-REAL(kind_real), INTENT(INOUT), ALLOCATABLE :: model_heights(:)    ! Geopotential heights of the refractivity levels
+INTEGER, INTENT(IN)            :: nlevp                   !< no. of p levels in state vec.
+INTEGER, INTENT(IN)            :: nlevq                   !< no. of theta levels
+REAL(kind_real), INTENT(IN)    :: za(1:nlevp)             !< geopotential heights of rho levs
+REAL(kind_real), INTENT(IN)    :: zb(1:nlevq)             !< geopotential heights of theta levs
+REAL(kind_real), INTENT(IN)    :: pressure(1:nlevp)       !< Model background pressure
+REAL(kind_real), INTENT(IN)    :: humidity(1:nlevq)       !< Model background specific humidity
+LOGICAL, INTENT(IN)            :: GPSRO_pseudo_ops        !< Option: Use pseudo-levels in vertical interpolation?
+LOGICAL, INTENT(IN)            :: GPSRO_vert_interp_ops   !< Option: Use ln(p) for vertical interpolation? (rather than exner)
+REAL(kind_real), INTENT(IN)    :: GPSRO_min_temp_grad     !< The minimum temperature gradient which is used
+REAL(kind_real), INTENT(IN)    :: dryRefractivityConstant !< Dry refractivity constant
+REAL(kind_real), INTENT(IN)    :: wetRefractivityConstant !< Wet refractivity constant
+INTEGER, INTENT(IN)            :: nobs                    !< Number of observations in the profile
+REAL(kind_real), INTENT(IN)    :: zobs(1:nobs)            !< Geopotential height of the obs
+REAL(kind_real), INTENT(INOUT) :: ycalc(1:nobs)           !< Model forecast of the observations
+LOGICAL, INTENT(OUT)           :: BAErr                   !< Was an error encountered during the calculation?
+REAL(kind_real), INTENT(INOUT), ALLOCATABLE :: refractivity(:)     !< Model refractivity on model/pseudo levels
+REAL(kind_real), INTENT(INOUT), ALLOCATABLE :: model_heights(:)    !< Geopotential heights of the refractivity levels
 !
 ! Things that may need to be output, as they are used by the TL/AD calculation
-! 
+!
 INTEGER                      :: nRefLevels          ! Number of levels in refractivity calculation
-! 
+!
 ! Local parameters
-! 
+!
 integer, parameter           :: max_string = 800  ! Length of strings
 character(len=*), parameter  :: myname_ = "Ops_GPSRO_ForwardModel"
 !
 ! Local variables
-! 
+!
 character(max_string)        :: err_msg           ! Error message to be output
 INTEGER                      :: iObs              ! Loop counter, observation number
 INTEGER                      :: iLevel            ! Number of model level just above observation
@@ -309,9 +320,9 @@ REAL(kind_real)              :: obs_height_diff   ! Height difference between ob
 
 ! The model data must be on a staggered grid, with nlevp = nlevq+1
 IF (nlevp /= nlevq + 1) THEN
-    write(err_msg,*) myname_ // ':' // ' Data must be on a staggered grid nlevp, nlevq = ', nlevp, nlevq
-    call fckit_log % warning(err_msg)
-    write(err_msg,*) myname_ // ':' // ' error: number of levels inconsistent!'
+    write(err_msg,*) myname_ // ":" // " Data must be on a staggered grid nlevp, nlevq = ", nlevp, nlevq
+    call oops_log % warning(err_msg)
+    write(err_msg,*) myname_ // ":" // " error: number of levels inconsistent!"
     call abor1_ftn(err_msg)
 END IF
 
@@ -319,19 +330,21 @@ BAErr = .FALSE.
 ycalc(:) = missing_value(ycalc(1))
 
 ! Calculate the refractivity on model or pseudo levels
-CALL ufo_calculate_refractivity (nlevp,                 &
-                                 nlevq,                 &
-                                 za,                    &
-                                 zb,                    &
-                                 pressure,              &
-                                 humidity,              &
-                                 GPSRO_pseudo_ops,      &
-                                 GPSRO_vert_interp_ops, &
-                                 GPSRO_min_temp_grad,   &
-                                 BAerr,                 &
-                                 nRefLevels,            &
-                                 refractivity,          &
-                                 model_heights,         &
+CALL ufo_calculate_refractivity (nlevp,                   &
+                                 nlevq,                   &
+                                 za,                      &
+                                 zb,                      &
+                                 pressure,                &
+                                 humidity,                &
+                                 GPSRO_pseudo_ops,        &
+                                 GPSRO_vert_interp_ops,   &
+                                 GPSRO_min_temp_grad,     &
+                                 dryRefractivityConstant, &
+                                 wetRefractivityConstant, &
+                                 BAerr,                   &
+                                 nRefLevels,              &
+                                 refractivity,            &
+                                 model_heights,           &
                                  temperature=temperature, &
                                  interp_pressure=Pb)
 
@@ -349,7 +362,7 @@ DO iObs = 1, nobs
         IF (zobs(iObs) < zb(iLevel + 1)) EXIT
         iLevel = iLevel + 1
       END DO
-      
+
       model_height_diff = zb(iLevel + 1) - zb(iLevel)
       obs_height_diff = zobs(iObs) - zb(iLevel)
 
@@ -385,8 +398,9 @@ DO iObs = 1, nobs
 
       ! Calculate refractivity
 
-      ycalc(iObs) = n_alpha * P_ob / T_ob + n_beta * P_ob * humidity_ob / (T_ob ** 2 * &
-                (rd_over_rv + (1.0 - rd_over_rv) * humidity_ob))
+      ycalc(iObs) = dryRefractivityConstant * P_ob / T_ob + &
+                    wetRefractivityConstant * P_ob * humidity_ob / &
+                    (T_ob ** 2 * (rd_over_rv + (1.0 - rd_over_rv) * humidity_ob))
     END IF
 
   ELSE
@@ -406,7 +420,7 @@ DO iObs = 1, nobs
       ycalc(iObs) = EXP(alpha_interp * LOG (refractivity(iLevel)) + &
                         beta_interp * LOG (refractivity(iLevel + 1)))
     ELSE IF (zobs(iObs) /= missing_value(zobs(iObs))) THEN
-      PRINT*, 'Height out of range', iObs, nRefLevels, model_heights(nRefLevels), zobs(iObs)
+      PRINT*, "Height out of range", iObs, nRefLevels, model_heights(nRefLevels), zobs(iObs)
     END IF
   END IF
 

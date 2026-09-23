@@ -10,6 +10,7 @@
 #include <limits>
 
 #include "ioda/distribution/Accumulator.h"
+#include "ioda/distribution/Distribution.h"
 #include "ioda/ObsDataVector.h"
 #include "ioda/ObsSpace.h"
 
@@ -22,9 +23,9 @@ namespace ufo {
 // -----------------------------------------------------------------------------
 
 SatwindInversionCorrection::SatwindInversionCorrection(ioda::ObsSpace & obsdb,
-                               const Parameters_ & parameters,
-                               std::shared_ptr<ioda::ObsDataVector<int> > flags,
-                               std::shared_ptr<ioda::ObsDataVector<float> > obserr)
+                                                       const Parameters_ & parameters,
+                                                       ioda::ObsDataVector<int> & flags,
+                                                       ioda::ObsDataVector<float> & obserr)
   : FilterBase(obsdb, parameters, flags, obserr), parameters_(parameters)
 {
   oops::Log::trace() << "SatwindInversion constructor" << std::endl;
@@ -88,11 +89,10 @@ void SatwindInversionCorrection::applyFilter(const std::vector<bool> & apply,
                                              std::vector<std::vector<bool>> & flagged) const {
   oops::Log::trace() << "SatwindInversionCorrection applyFilter start" << std::endl;
 
-  const float missing = util::missingValue<float>();
   const size_t nlocs = obsdb_.nlocs();
 
 // Get parameters from options.
-  const float rh_threshold = parameters_.rh_threshold.value();
+  const float model_rh_threshold = parameters_.model_rh_threshold.value();
   const float min_pressure = parameters_.min_pressure.value();
   const float max_pressure = parameters_.max_pressure.value();
   const float inversion_temperature = parameters_.inversion_temperature.value();
@@ -158,7 +158,6 @@ void SatwindInversionCorrection::applyFilter(const std::vector<bool> & apply,
         bool inversion = false;
         bool firsttime = true;
         float inversion_base = std::numeric_limits<float>::max();
-        float inversion_top = std::numeric_limits<float>::max();
         float temp_inversion_base = std::numeric_limits<float>::max();
         float temp_inversion_top = std::numeric_limits<float>::max();
         //  loop over levels starting from highest pressure (bottom to top)
@@ -185,8 +184,7 @@ void SatwindInversionCorrection::applyFilter(const std::vector<bool> & apply,
               model_vcoord_profile[ilev] < inversion_base &&
               firsttime) {
             //  Check humidity of inversion top
-            if (model_rh_profile[ilev] < rh_threshold) {
-              inversion_top = model_vcoord_profile[ilev];
+            if (model_rh_profile[ilev] < model_rh_threshold) {
               temp_inversion_top = model_temp_profile[ilev];
               firsttime = false;
             } else {
@@ -214,15 +212,16 @@ void SatwindInversionCorrection::applyFilter(const std::vector<bool> & apply,
     }  // apply
   }  // location loop
   //  write back corrected pressure, updated flags and original pressure
-  obsdb_.put_db(parameters_.obs_pressure.value().group(),
-                parameters_.obs_pressure.value().variable(), obs_pressure);
+  const ufo::Variable obsPressureVar = parameters_.obs_pressure.value();
+  obsdb_.put_db(obsPressureVar.group(), obsPressureVar.variable(), obs_pressure,
+                obsPressureVar.dimList());
   obsdb_.put_db("DiagnosticFlags/InversionCorrectionPerformed", "windEastward",
                 diagFlagsUSatwindInversion);
   obsdb_.put_db("DiagnosticFlags/InversionCorrectionPerformed", "windNorthward",
                 diagFlagsVSatwindInversion);
-  obsdb_.put_db(parameters_.obs_pressure.value().group(),
-                parameters_.obs_pressure.value().variable() + std::string("_original"),
-                original_pressure);
+  obsdb_.put_db(obsPressureVar.group(),
+                obsPressureVar.variable() + std::string("_original"),
+                original_pressure, obsPressureVar.dimList());
 
   // sum number corrected and pressure differences
   const std::size_t count = countAccumulator->computeResult();

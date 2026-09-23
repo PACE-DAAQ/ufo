@@ -63,8 +63,8 @@ class BayesianBackgroundQCFlags : public FilterBase,
   static const std::string classname() {return "ufo::BayesianBackgroundQCFlags";}
 
   BayesianBackgroundQCFlags(ioda::ObsSpace &, const Parameters_ &,
-                            std::shared_ptr<ioda::ObsDataVector<int> >,
-                            std::shared_ptr<ioda::ObsDataVector<float> >);
+                            ioda::ObsDataVector<int> &,
+                            ioda::ObsDataVector<float> &);
   ~BayesianBackgroundQCFlags();
 
  private:
@@ -83,7 +83,8 @@ class BayesianBackgroundQCFlags : public FilterBase,
   /// Also set an overall filter flag (bayesianQC).
   void setFlags(const std::string& varname,
                 const std::vector<bool>& apply,
-                std::vector<bool>& flagged) const;
+                std::vector<bool>& flagged,
+                const std::vector<std::string>& dimList) const;
 
   /// Parameters used in this filter.
   Parameters_ parameters_;

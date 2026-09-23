@@ -12,7 +12,7 @@ module ufo_radiancecrtm_tlad_mod
 
  use fckit_configuration_module, only: fckit_configuration
  use fckit_mpi_module,   only: fckit_mpi_comm
- use iso_c_binding
+ use, intrinsic :: iso_c_binding
  use kinds
  use missing_values_mod
 
@@ -23,16 +23,16 @@ module ufo_radiancecrtm_tlad_mod
  use ufo_crtm_utils_mod
 
  use ufo_constants_mod, only: deg2rad, kg_to_g
- use ufo_utils_mod, only: cmp_strings
  use ufo_crtm_passive_mod
  use ufo_crtm_active_mod
-
+ use ufo_reconradop_crtm_mod
  implicit none
  private
 
  !> Fortran derived type for radiancecrtm trajectory
  type, public :: ufo_radiancecrtm_tlad
  private
+  type(ufo_reconradop_crtm) :: reconradop_crtm
   character(len=MAXVARLEN), public, allocatable :: varin(:)  ! variables requested from the model
   integer, allocatable                          :: channels(:)
   type(crtm_conf) :: conf
@@ -54,7 +54,7 @@ module ufo_radiancecrtm_tlad_mod
  end type ufo_radiancecrtm_tlad
 
  character(len=maxvarlen), dimension(1), parameter :: varin_default = &
-                            (/var_ts/)
+                            [var_ts]
 
 contains
 
@@ -76,7 +76,7 @@ character(max_string) :: err_msg
 
  call f_confOper%get_or_die("obs options",f_confOpts)
  call crtm_conf_setup(self%conf_traj, f_confOpts, f_confOper, midPointJulday, comm)
- call f_confOper%get_or_die("UseQCFlagsToSkipHofX",self%use_qc_flags)  
+ call f_confOper%get_or_die("UseQCFlagsToSkipHofX",self%use_qc_flags)
 
  if ( f_confOper%has("linear obs operator") ) then
     call f_confOper%get_or_die("linear obs operator",f_confLinOper)
@@ -109,9 +109,10 @@ character(max_string) :: err_msg
  if ( (ufo_vars_getindex(self%varin, var_sfc_wspeed) > 0 .or. &
        ufo_vars_getindex(self%varin, var_sfc_wdir) > 0) .and. &
       trim(self%conf_traj%sfc_wind_geovars) /= "vector") then
-   write(err_msg,*) 'ufo_radiancecrtm_tlad_setup error: sfc_wind_geovars not supported in tlad --> ', self%conf_traj%sfc_wind_geovars
+   write(err_msg,*) "ufo_radiancecrtm_tlad_setup error: sfc_wind_geovars not supported in tlad --> ", self%conf_traj%sfc_wind_geovars
    call abor1_ftn(err_msg)
  end if
+
 
  ! save channels
  allocate(self%channels(size(channels)))
@@ -136,17 +137,18 @@ class(ufo_radiancecrtm_tlad), intent(inout) :: self
  if (allocated(self%atm_k)) then
    call CRTM_Atmosphere_Destroy(self%atm_K)
    deallocate(self%atm_k)
- endif
+ end if
 
  if (allocated(self%sfc_k)) then
    call CRTM_Surface_Destroy(self%sfc_K)
    deallocate(self%sfc_k)
- endif
+ end if
 
  if (allocated(self%Options)) then
     call CRTM_Options_Destroy(self%Options)
     deallocate(self%Options)
- endif
+ end if
+
 
 end subroutine ufo_radiancecrtm_tlad_delete
 
@@ -156,9 +158,8 @@ subroutine ufo_radiancecrtm_tlad_settraj(self, geovals, obss, hofxdiags, qcf_p)
 use fckit_mpi_module,   only: fckit_mpi_comm
 use fckit_log_module,   only: fckit_log
 use obsdatavector_mod,  only: obsdatavector_int
-use ieee_arithmetic,    only: ieee_is_nan
-use iso_fortran_env,    only: int64
-use ufo_utils_mod,      only: cmp_strings
+use, intrinsic :: ieee_arithmetic,    only: ieee_is_nan
+use, intrinsic :: iso_fortran_env,    only: int64
 use CRTM_SpcCoeff, only: SC, &
                          SpcCoeff_IsMicrowaveSensor , &
                          SpcCoeff_IsInfraredSensor  , &
@@ -175,7 +176,7 @@ type(c_ptr), value,       intent(in) :: qcf_p
 type(obsdatavector_int) :: qc_flags
 
 ! Local Variables
-character(*), parameter :: PROGRAM_NAME = 'ufo_radiancecrtm_tlad_settraj'
+character(*), parameter :: PROGRAM_NAME = "ufo_radiancecrtm_tlad_settraj"
 character(255) :: message, version
 character(max_string) :: err_msg, dbg_msg
 integer        :: err_stat, alloc_stat
@@ -215,10 +216,11 @@ character(10), parameter :: jacobianstr = "_jacobian_"
 integer(c_size_t) :: nvars, nlocs
 integer :: n_skipped, n_good
 integer :: qc_ff
+integer :: ispec
 logical:: skip_prof
 
 ! set a local boolean variable for whether we are in vis or ultraviolet channels
-logical :: Is_Vis_or_UV = .false.
+logical :: Is_Vis_or_UV
 
 integer, allocatable :: zeroCloudInCRTM0(:)
 
@@ -269,7 +271,7 @@ integer, allocatable :: zeroCloudInCRTM0(:)
                        MWwaterCoeff_File   = trim(self%conf_traj%MWwaterCoeff_File)  , &
                        Quiet               = .TRUE.)
 
- message = 'Error initializing CRTM (setTraj)'
+ message = "Error initializing CRTM (setTraj)"
  call crtm_comm_stat_check(err_stat, PROGRAM_NAME, message, f_comm)
 
  ! Loop over all sensors. Not necessary if we're calling CRTM for each sensor
@@ -280,7 +282,7 @@ integer, allocatable :: zeroCloudInCRTM0(:)
    ! Pass channel list to CRTM
    ! -------------------------
    err_stat = CRTM_ChannelInfo_Subset(chinfo(n), self%channels, reset=.false.)
-   message = 'Error subsetting channels'
+   message = "Error subsetting channels"
    call crtm_comm_stat_check(err_stat, PROGRAM_NAME, message, f_comm)
 
    ! Determine the number of channels for the current sensor
@@ -299,14 +301,14 @@ integer, allocatable :: zeroCloudInCRTM0(:)
              rts_K( self%n_Channels, self%n_Profiles )      , &
              self%Options( self%n_Profiles )                , &
              STAT = alloc_stat                                )
-   message = 'Error allocating structure arrays (setTraj)'
+   message = "Error allocating structure arrays (setTraj)"
    call crtm_comm_stat_check(alloc_stat, PROGRAM_NAME, message, f_comm)
 
    ! Create the input FORWARD structure (atm)
    ! ----------------------------------------
    call CRTM_Atmosphere_Create( atm, self%n_Layers, self%conf_traj%n_Absorbers, self%conf_traj%n_Clouds, self%conf_traj%n_Aerosols )
    if ( ANY(.NOT. CRTM_Atmosphere_Associated(atm)) ) THEN
-      message = 'Error allocating CRTM Forward Atmosphere structure (setTraj)'
+      message = "Error allocating CRTM Forward Atmosphere structure (setTraj)"
       CALL Display_Message( PROGRAM_NAME, message, FAILURE )
       STOP
    END IF
@@ -317,7 +319,7 @@ integer, allocatable :: zeroCloudInCRTM0(:)
    ! ----------------------------------------
    call CRTM_Surface_Create(sfc, self%n_Channels)
    IF ( ANY(.NOT. CRTM_Surface_Associated(sfc)) ) THEN
-      message = 'Error allocating CRTM Surface structure (setTraj)'
+      message = "Error allocating CRTM Surface structure (setTraj)"
       CALL Display_Message( PROGRAM_NAME, message, FAILURE )
       STOP
    END IF
@@ -328,7 +330,7 @@ integer, allocatable :: zeroCloudInCRTM0(:)
    call CRTM_Atmosphere_Create( self%atm_K, self%n_Layers, self%conf_traj%n_Absorbers, &
                                 self%conf_traj%n_Clouds, self%conf_traj%n_Aerosols )
    if ( ANY(.NOT. CRTM_Atmosphere_Associated(self%atm_K)) ) THEN
-      message = 'Error allocating CRTM K-matrix Atmosphere structure (setTraj)'
+      message = "Error allocating CRTM K-matrix Atmosphere structure (setTraj)"
       CALL Display_Message( PROGRAM_NAME, message, FAILURE )
       STOP
    END IF
@@ -338,7 +340,7 @@ integer, allocatable :: zeroCloudInCRTM0(:)
    ! --------------------------------------
    call CRTM_Surface_Create(self%sfc_K, self%n_Channels)
    IF ( ANY(.NOT. CRTM_Surface_Associated(self%sfc_K)) ) THEN
-      message = 'Error allocating CRTM K-matrix Surface structure (setTraj)'
+      message = "Error allocating CRTM K-matrix Surface structure (setTraj)"
       CALL Display_Message( PROGRAM_NAME, message, FAILURE )
       STOP
    END IF
@@ -349,7 +351,7 @@ integer, allocatable :: zeroCloudInCRTM0(:)
       Is_Vis_or_UV = .true.
    else
       Is_Vis_or_UV = .false.
-   endif
+   end if
 
    !Assign the data from the GeoVaLs
    !--------------------------------
@@ -359,12 +361,12 @@ integer, allocatable :: zeroCloudInCRTM0(:)
    call Load_Atm_Data(self%N_PROFILES,self%N_LAYERS,geovals,atm,self%conf_traj, SC(n)%Is_Active_Sensor, &
                       zeroCloudInCRTM0)
    deallocate(zeroCloudInCRTM0)
-   if (cmp_strings(self%conf%SENSOR_ID(n),'gmi_gpm')) then
+   if (self%conf%SENSOR_ID(n) == "gmi_gpm") then
       allocate( geo_hf( self%n_Profiles ))
       call Load_Geom_Data(obss,geo,geo_hf,self%conf%SENSOR_ID(n))
    else
       call Load_Geom_Data(obss,geo)
-   endif
+   end if
 
    ! Zero the K-matrix OUTPUT structures
    ! -----------------------------------
@@ -385,7 +387,7 @@ integer, allocatable :: zeroCloudInCRTM0(:)
 
        rts_K%Radiance                = ZERO
        rts_K%Brightness_Temperature  = ZERO
-   else if (Is_Vis_or_UV) then
+   else if (Is_Vis_or_UV .or. self % conf % read_Cmatrix ) then
        rts_K%Radiance                = ONE
        rts_K%Brightness_Temperature  = ZERO
    else
@@ -425,7 +427,7 @@ integer, allocatable :: zeroCloudInCRTM0(:)
          n_good = n_good - 1
        end if
      end do
-     write(dbg_msg,'(a,i9,a,i9,a)') 'DEBUG (TLAD), total of ', n_skipped, ' profiles being skipped. Using ', n_good, ' good profiles'
+     write(dbg_msg,"(a,i9,a,i9,a)") "DEBUG (TLAD), total of ", n_skipped, " profiles being skipped. Using ", n_good, " good profiles"
      call fckit_log%debug(dbg_msg)
    end if
 
@@ -440,15 +442,15 @@ integer, allocatable :: zeroCloudInCRTM0(:)
                              self%sfc_K  , &  ! K-MATRIX Output
                              rts         , &  ! FORWARD  Output
                              self%Options  )  ! Input
-   message = 'Error calling CRTM (setTraj) K-Matrix Model for '//TRIM(self%conf_traj%SENSOR_ID(n))
+   message = "Error calling CRTM (setTraj) K-Matrix Model for "//TRIM(self%conf_traj%SENSOR_ID(n))
    call crtm_comm_stat_check(err_stat, PROGRAM_NAME, message, f_comm)
-   if (cmp_strings(self%conf%SENSOR_ID(n),'gmi_gpm')) then
+   if (self%conf%SENSOR_ID(n) == "gmi_gpm") then
       allocate( atm_Ka( self%n_Channels, self%n_Profiles ),               &
                 sfc_Ka( self%n_Channels, self%n_Profiles ),   &
                 rts_Ka( self%n_Channels, self%n_Profiles ),   &
                 rtsa( self%n_Channels, self%n_Profiles ),     &
                 STAT = alloc_stat )
-      message = 'Error allocating K structure arrays rtsa, atm_Ka ......'
+      message = "Error allocating K structure arrays rtsa, atm_Ka ......"
       call crtm_comm_stat_check(alloc_stat, PROGRAM_NAME, message, f_comm)
       !! save resutls for gmi channels 1-9.
       atm_Ka = self%atm_K
@@ -475,7 +477,7 @@ integer, allocatable :: zeroCloudInCRTM0(:)
                                 self%sfc_K  , &  ! K-MATRIX Output
                                 rts         , &  ! FORWARD  Output
                                 self%Options  )  ! Input
-      message = 'Error calling CRTM (setTraj, geo_hf) K-Matrix Model for '&
+      message = "Error calling CRTM (setTraj, geo_hf) K-Matrix Model for "&
                 //TRIM(self%conf_traj%SENSOR_ID(n))
       call crtm_comm_stat_check(err_stat, PROGRAM_NAME, message, f_comm)
       !! replace data for gmi channels 1-9 by early results calculated with geo.
@@ -485,10 +487,10 @@ integer, allocatable :: zeroCloudInCRTM0(:)
             self%sfc_K(lch,:) = sfc_Ka(lch,:)
             rts_K(lch,:) = rts_Ka(lch,:)
             rts(lch,:)   = rtsa(lch,:)
-         endif
-      enddo
+         end if
+      end do
       deallocate(atm_Ka,sfc_Ka,rts_Ka,rtsa)
-   endif ! cmp_strings(self%conf%SENSOR_ID(n),'gmi_gpm')
+   end if ! self%conf%SENSOR_ID(n) == 'gmi_gpm'
 
    !call CRTM_RTSolution_Inspect(rts)
 
@@ -500,7 +502,7 @@ integer, allocatable :: zeroCloudInCRTM0(:)
             if (ieee_is_nan(self%atm_K(jchannel,jprofile)%Temperature(jlevel))) then
                self%Options(jprofile)%Skip_Profile = .TRUE.
                numNaN = numNaN + 1
-               write(message,*) numNaN, 'th NaN in Jacobian Profiles'
+               write(message,*) numNaN, "th NaN in Jacobian Profiles"
                call fckit_log%info(message)
                cycle
             end if
@@ -522,8 +524,8 @@ integer, allocatable :: zeroCloudInCRTM0(:)
       read(varstr(str_pos(3)+1:str_pos(4)),*, err=999) ch_diags(jvar)
  999  str_pos(1) = index(varstr,jacobianstr) - 1        !position before jacobianstr
       if (str_pos(1) == 0) then
-         write(err_msg,*) 'ufo_crtm_passive_tlad_diags: _jacobian_ must be // &
-                           & preceded by dependent variable in config: ', &
+         write(err_msg,*) "ufo_crtm_passive_tlad_diags: _jacobian_ must be // &
+                           & preceded by dependent variable in config: ", &
                            & hofxdiags%variables(jvar)
          call abor1_ftn(err_msg)
       else if (str_pos(1) > 0) then
@@ -567,6 +569,20 @@ integer, allocatable :: zeroCloudInCRTM0(:)
                                 hofxdiags,&
                                 err_stat)
    else
+      if (self % conf % read_Cmatrix) then
+         call self%reconradop_crtm%apply(self%conf % Cmatrix_path,&
+                                         rts, &
+                                         n, &
+                                         self%n_Profiles, &
+                                         self%n_Channels, &
+                                         self%conf%n_Absorbers,&
+                                         self%n_Layers,&
+                                         self%channels, &
+                                         rts_K, &
+                                         self%atm_K, &
+                                         self%sfc_K, .true. )
+      end if
+
       call ufo_crtm_passive_diag(rts, &
                                  rts_K, &
                                  atm, &
@@ -599,9 +615,29 @@ integer, allocatable :: zeroCloudInCRTM0(:)
 
    ! check for error from either passive or active
    if (err_stat > 0) then
-       write(err_msg,*) 'ufo_radiancecrtm_tlad_settraj error: failed to put simulated diagnostics into hofxdiags'
+       write(err_msg,*) "ufo_radiancecrtm_tlad_settraj error: failed to put simulated diagnostics into hofxdiags"
        call abor1_ftn(err_msg)
     end if
+
+   ! If desired, zero out Jacobian following a user-defined range setting
+   ! --------------------------------------------------------------------
+   if (self%conf%zeroO3JacRange(1)>0.0 .and. self%conf%zeroO3JacRange(2)<1.0e9) then
+     do jspec = 1, self%conf%n_Absorbers
+       ispec = ufo_vars_getindex(self%conf_traj%Absorbers, self%conf%Absorbers(jspec))
+       if (self%conf%Absorbers(ispec) == var_oz) then
+          do jprofile = 1, self%n_Profiles
+            if (.not.self%Options(jprofile)%Skip_Profile) then
+               do lch = 1, size(self%channels)
+                  if (sc(n)%wavenumber(lch) < self%conf%zeroO3JacRange(1) .or. &
+                      sc(n)%wavenumber(lch) > self%conf%zeroO3JacRange(2)) then
+                     self%atm_K(lch,jprofile)%Absorber(:,ispec) = ZERO
+                  end if
+               end do
+            end if
+          end do
+       end if
+     end do
+   end if
 
    ! Deallocate the structures
    ! -------------------------
@@ -616,7 +652,7 @@ integer, allocatable :: zeroCloudInCRTM0(:)
    ! ---------------------
    deallocate(geo, atm, sfc, rts, rts_K, STAT = alloc_stat)
    if(allocated(geo_hf)) deallocate(geo_hf)
-   message = 'Error deallocating structure arrays (setTraj)'
+   message = "Error deallocating structure arrays (setTraj)"
    call crtm_comm_stat_check(alloc_stat, PROGRAM_NAME, message, f_comm)
 
  end do Sensor_Loop
@@ -626,7 +662,7 @@ integer, allocatable :: zeroCloudInCRTM0(:)
  ! ---------------------
  ! write( *, '( /5x, "Destroying the CRTM (setTraj)..." )' )
  err_stat = CRTM_Destroy( chinfo )
- message = 'Error destroying CRTM (setTraj)'
+ message = "Error destroying CRTM (setTraj)"
  call crtm_comm_stat_check(err_stat, PROGRAM_NAME, message, f_comm)
 
  ! Set flag that the tracectory was set
@@ -638,7 +674,7 @@ end subroutine ufo_radiancecrtm_tlad_settraj
 
 ! ------------------------------------------------------------------------------
 
-subroutine ufo_radiancecrtm_simobs_tl(self, geovals, obss, nvars, nlocs, hofx, qcf_p)
+subroutine ufo_radiancecrtm_simobs_tl(self, geovals, obss, nvars, nlocs, hofx)
 
 implicit none
 class(ufo_radiancecrtm_tlad), intent(in)    :: self
@@ -646,7 +682,6 @@ type(ufo_geovals),        intent(in)    :: geovals
 type(c_ptr), value,       intent(in)    :: obss
 integer,                  intent(in)    :: nvars, nlocs
 real(c_double),           intent(inout) :: hofx(nvars, nlocs)
-type(c_ptr), value,       intent(in)    :: qcf_p
 character(len=*), parameter :: myname_="ufo_radiancecrtm_simobs_tl"
 character(max_string) :: err_msg
 integer :: jprofile, jchannel, jlevel, jspec, ispec
@@ -658,15 +693,15 @@ real(kind_real) :: geoval_unit_rescale
 
  ! Check if trajectory was set
  if (.not. self%ltraj) then
-   write(err_msg,*) myname_, ' trajectory wasnt set!'
+   write(err_msg,*) myname_, " trajectory wasnt set!"
    call abor1_ftn(err_msg)
- endif
+ end if
 
  ! Check if nlocs is consistent in geovals & hofx
  if (geovals%nlocs /= self%n_Profiles) then
-   write(err_msg,*) myname_, ' error: nlocs inconsistent!'
+   write(err_msg,*) myname_, " error: nlocs inconsistent!"
    call abor1_ftn(err_msg)
- endif
+ end if
 
  ! Initialize hofx
  ! ---------------
@@ -680,22 +715,22 @@ real(kind_real) :: geoval_unit_rescale
 
  ! Check model levels is consistent in geovals & crtm
  if (geoval_d%nval /= self%n_Layers) then
-   write(err_msg,*) myname_, ' error: layers inconsistent!'
+   write(err_msg,*) myname_, " error: layers inconsistent!"
    call abor1_ftn(err_msg)
- endif
+ end if
 
    ! Multiply by Jacobian and add to hofx
    do jprofile = 1, self%n_Profiles
      if (.not.self%Options(jprofile)%Skip_Profile) then
-       do jchannel = 1, size(self%channels) 
+       do jchannel = 1, size(self%channels)
          do jlevel = 1, geoval_d%nval
            hofx(jchannel, jprofile) = hofx(jchannel, jprofile) + &
                       self%atm_K(jchannel,jprofile)%Temperature(jlevel) * &
                       geoval_d%vals(jlevel,jprofile)
-         enddo
-       enddo
+         end do
+       end do
      end if
-   enddo
+   end do
 
  ! Absorbers
  ! ---------
@@ -707,7 +742,7 @@ real(kind_real) :: geoval_unit_rescale
      ispec = ufo_vars_getindex(self%conf_traj%Absorbers, self%conf%Absorbers(jspec))
 
      geoval_unit_rescale = one
-     if (cmp_strings(self%conf%Absorbers(ispec), var_mixr)) then
+     if (self%conf%Absorbers(ispec) == var_mixr) then
        ! NOTE if "water_vapor_mixing_ratio_wrt_dry_air", convert from JEDI's kg/kg to CRTM's g/kg
        geoval_unit_rescale = kg_to_g
      end if
@@ -720,10 +755,10 @@ real(kind_real) :: geoval_unit_rescale
              hofx(jchannel, jprofile) = hofx(jchannel, jprofile) + &
                         self%atm_K(jchannel,jprofile)%Absorber(jlevel,ispec) * &
                         geoval_unit_rescale * geoval_d%vals(jlevel,jprofile)
-           enddo
-         enddo
+           end do
+         end do
        end if
-     enddo
+     end do
    end do
 
    ! Clouds (mass content only)
@@ -743,10 +778,10 @@ real(kind_real) :: geoval_unit_rescale
              hofx(jchannel, jprofile) = hofx(jchannel, jprofile) + &
                         self%atm_K(jchannel,jprofile)%Cloud(ispec)%Water_Content(jlevel) * &
                         geoval_d%vals(jlevel,jprofile)
-           enddo
-         enddo
+           end do
+         end do
        end if
-     enddo
+     end do
    end do
 
  ! Surface Variables
@@ -769,9 +804,9 @@ real(kind_real) :: geoval_unit_rescale
                   hofx(jchannel, jprofile) = hofx(jchannel, jprofile) + &
                         self%sfc_K(jchannel,jprofile)%water_temperature * &
                         geoval_d%vals(jlevel,jprofile)
-               enddo
+               end do
             end if
-         enddo
+         end do
 
       ! Surface Temperature Where Land / Land Temperature
       case(var_sfc_ltmp)
@@ -784,9 +819,9 @@ real(kind_real) :: geoval_unit_rescale
                   hofx(jchannel, jprofile) = hofx(jchannel, jprofile) + &
                         self%sfc_K(jchannel,jprofile)%land_temperature * &
                         geoval_d%vals(jlevel,jprofile)
-               enddo
+               end do
             end if
-         enddo
+         end do
 
       ! Surface Temperature Where Ice / Ice Temperature
       case(var_sfc_itmp)
@@ -799,9 +834,9 @@ real(kind_real) :: geoval_unit_rescale
                   hofx(jchannel, jprofile) = hofx(jchannel, jprofile) + &
                         self%sfc_K(jchannel,jprofile)%ice_temperature * &
                         geoval_d%vals(jlevel,jprofile)
-               enddo
+               end do
             end if
-         enddo
+         end do
 
       ! Surface Temperature Where Snow / Snow Temperature
       case(var_sfc_stmp)
@@ -814,9 +849,9 @@ real(kind_real) :: geoval_unit_rescale
                   hofx(jchannel, jprofile) = hofx(jchannel, jprofile) + &
                         self%sfc_K(jchannel,jprofile)%snow_temperature * &
                         geoval_d%vals(jlevel,jprofile)
-               enddo
+               end do
             end if
-         enddo
+         end do
 
       ! Surface Wind Speed / Wind Speed
       case(var_sfc_wspeed)
@@ -829,9 +864,9 @@ real(kind_real) :: geoval_unit_rescale
                   hofx(jchannel, jprofile) = hofx(jchannel, jprofile) + &
                         self%sfc_K(jchannel,jprofile)%wind_speed * &
                         geoval_d%vals(jlevel,jprofile)
-               enddo
+               end do
             end if
-         enddo
+         end do
 
       ! Surface Wind From Direction / Wind Direction
       case(var_sfc_wdir)
@@ -844,9 +879,9 @@ real(kind_real) :: geoval_unit_rescale
                   hofx(jchannel, jprofile) = hofx(jchannel, jprofile) + &
                         self%sfc_K(jchannel,jprofile)%wind_direction * &
                         geoval_d%vals(jlevel,jprofile)
-               enddo
+               end do
             end if
-         enddo
+         end do
 
       ! Sea Surface Salinity / Salinity
       case(var_sfc_sss)
@@ -859,9 +894,9 @@ real(kind_real) :: geoval_unit_rescale
                   hofx(jchannel, jprofile) = hofx(jchannel, jprofile) + &
                         self%sfc_K(jchannel,jprofile)%salinity * &
                         geoval_d%vals(jlevel,jprofile)
-               enddo
+               end do
             end if
-         enddo
+         end do
 
    end select
  end do
@@ -871,7 +906,7 @@ end subroutine ufo_radiancecrtm_simobs_tl
 
 ! ------------------------------------------------------------------------------
 
-subroutine ufo_radiancecrtm_simobs_ad(self, geovals, obss, nvars, nlocs, hofx, qcf_p)
+subroutine ufo_radiancecrtm_simobs_ad(self, geovals, obss, nvars, nlocs, hofx)
 
 implicit none
 class(ufo_radiancecrtm_tlad), intent(in)    :: self
@@ -879,7 +914,6 @@ type(ufo_geovals),        intent(inout) :: geovals
 type(c_ptr), value,       intent(in)    :: obss
 integer,                  intent(in)    :: nvars, nlocs
 real(c_double),           intent(in)    :: hofx(nvars, nlocs)
-type(c_ptr), value,       intent(in)    :: qcf_p
 character(len=*), parameter :: myname_="ufo_radiancecrtm_simobs_ad"
 character(max_string) :: err_msg
 integer :: jprofile, jchannel, jlevel, jspec, ispec
@@ -892,15 +926,15 @@ real(kind_real) :: geoval_unit_rescale
 
  ! Check if trajectory was set
  if (.not. self%ltraj) then
-   write(err_msg,*) myname_, ' trajectory wasnt set!'
+   write(err_msg,*) myname_, " trajectory wasnt set!"
    call abor1_ftn(err_msg)
- endif
+ end if
 
  ! Check if nlocs is consistent in geovals & hofx
  if (geovals%nlocs /= self%n_Profiles) then
-   write(err_msg,*) myname_, ' error: nlocs inconsistent!'
+   write(err_msg,*) myname_, " error: nlocs inconsistent!"
    call abor1_ftn(err_msg)
- endif
+ end if
 
  ! Set missing value
  missing = missing_value(missing)
@@ -920,11 +954,11 @@ real(kind_real) :: geoval_unit_rescale
                geoval_d%vals(jlevel,jprofile) = geoval_d%vals(jlevel,jprofile) + &
                                           self%atm_K(jchannel,jprofile)%Temperature(jlevel) * &
                                           hofx(jchannel, jprofile)
-           enddo
-         endif
-       enddo
+           end do
+         end if
+       end do
      end if
-   enddo
+   end do
 
    ! Absorbers
    ! ---------
@@ -936,7 +970,7 @@ real(kind_real) :: geoval_unit_rescale
      ispec = ufo_vars_getindex(self%conf_traj%Absorbers, self%conf%Absorbers(jspec))
 
      geoval_unit_rescale = one
-     if (cmp_strings(self%conf%Absorbers(ispec), var_mixr)) then
+     if (self%conf%Absorbers(ispec) == var_mixr) then
        ! NOTE if "water_vapor_mixing_ratio_wrt_dry_air", convert from JEDI's kg/kg to CRTM's g/kg
        geoval_unit_rescale = kg_to_g
      end if
@@ -950,11 +984,11 @@ real(kind_real) :: geoval_unit_rescale
                geoval_d%vals(jlevel,jprofile) = geoval_d%vals(jlevel,jprofile) + &
                                             self%atm_K(jchannel,jprofile)%Absorber(jlevel,ispec) * &
                                             geoval_unit_rescale * hofx(jchannel, jprofile)
-             enddo
-           endif
-         enddo
+             end do
+           end if
+         end do
        end if
-     enddo
+     end do
    end do
 
    ! Clouds (mass content only)
@@ -975,13 +1009,13 @@ real(kind_real) :: geoval_unit_rescale
                geoval_d%vals(jlevel,jprofile) = geoval_d%vals(jlevel,jprofile) + &
                                             self%atm_K(jchannel,jprofile)%Cloud(ispec)%Water_Content(jlevel) * &
                                             hofx(jchannel, jprofile)
-             enddo
-           endif
-         enddo
+             end do
+           end if
+         end do
        end if
-     enddo
+     end do
    end do
- 
+
  ! Surface Variables
  ! --------------------------
  do jspec = 1, self%conf%n_Surfaces
@@ -1002,10 +1036,10 @@ real(kind_real) :: geoval_unit_rescale
                      geoval_d%vals(jlevel, jprofile) = geoval_d%vals(jlevel,jprofile) + &
                           self%sfc_K(jchannel,jprofile)%water_temperature * &
                           hofx(jchannel,jprofile)
-                  endif
-               enddo
+                  end if
+               end do
             end if
-         enddo
+         end do
 
       ! Surface Temperature Where Land / Land Temperature
       case(var_sfc_ltmp)
@@ -1019,10 +1053,10 @@ real(kind_real) :: geoval_unit_rescale
                      geoval_d%vals(jlevel, jprofile) = geoval_d%vals(jlevel,jprofile) + &
                           self%sfc_K(jchannel,jprofile)%land_temperature * &
                           hofx(jchannel,jprofile)
-                  endif
-               enddo
+                  end if
+               end do
             end if
-         enddo
+         end do
 
       ! Surface Temperature Where Ice / Ice Temperature
       case(var_sfc_itmp)
@@ -1036,10 +1070,10 @@ real(kind_real) :: geoval_unit_rescale
                      geoval_d%vals(jlevel, jprofile) = geoval_d%vals(jlevel,jprofile) + &
                           self%sfc_K(jchannel,jprofile)%ice_temperature * &
                           hofx(jchannel,jprofile)
-                  endif
-               enddo
+                  end if
+               end do
             end if
-         enddo
+         end do
 
       ! Surface Temperature Where Snow / Snow Temperature
       case(var_sfc_stmp)
@@ -1053,10 +1087,10 @@ real(kind_real) :: geoval_unit_rescale
                      geoval_d%vals(jlevel, jprofile) = geoval_d%vals(jlevel,jprofile) + &
                           self%sfc_K(jchannel,jprofile)%snow_temperature * &
                           hofx(jchannel,jprofile)
-                  endif
-               enddo
+                  end if
+               end do
             end if
-         enddo
+         end do
 
       ! Surface Wind Speed / Wind Speed
       case(var_sfc_wspeed)
@@ -1070,10 +1104,10 @@ real(kind_real) :: geoval_unit_rescale
                      geoval_d%vals(jlevel, jprofile) = geoval_d%vals(jlevel,jprofile) + &
                           self%sfc_K(jchannel,jprofile)%wind_speed * &
                           hofx(jchannel,jprofile)
-                  endif
-               enddo
+                  end if
+               end do
             end if
-         enddo
+         end do
 
       ! Surface Wind From Direction / Wind Direction
       case(var_sfc_wdir)
@@ -1087,10 +1121,10 @@ real(kind_real) :: geoval_unit_rescale
                      geoval_d%vals(jlevel, jprofile) = geoval_d%vals(jlevel,jprofile) + &
                           self%sfc_K(jchannel,jprofile)%wind_direction * &
                           hofx(jchannel,jprofile)
-                  endif
-               enddo
+                  end if
+               end do
             end if
-         enddo
+         end do
 
       ! Sea Surface Salinity / Salinity
       case(var_sfc_sss)
@@ -1104,14 +1138,14 @@ real(kind_real) :: geoval_unit_rescale
                      geoval_d%vals(jlevel, jprofile) = geoval_d%vals(jlevel,jprofile) + &
                           self%sfc_K(jchannel,jprofile)%salinity * &
                           hofx(jchannel,jprofile)
-                  endif
-               enddo
+                  end if
+               end do
             end if
-         enddo
+         end do
 
    end select
 
- enddo
+ end do
 
 
 end subroutine ufo_radiancecrtm_simobs_ad

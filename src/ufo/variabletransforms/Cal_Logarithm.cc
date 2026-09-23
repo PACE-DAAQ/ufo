@@ -7,6 +7,7 @@
 
 #include <sstream>
 
+#include "ioda/ObsSpace.h"
 #include "ufo/utils/Constants.h"
 #include "ufo/variabletransforms/Cal_Logarithm.h"
 
@@ -18,8 +19,8 @@ static TransformMaker<Cal_Logarithm> makerCal_Logarithm_("Logarithm");
 
 Cal_Logarithm::Cal_Logarithm(
     const Parameters_ &options, const ObsFilterData &data,
-    const std::shared_ptr<ioda::ObsDataVector<int>> &flags,
-    const std::shared_ptr<ioda::ObsDataVector<float>> &obserr)
+    ioda::ObsDataVector<int> &flags,
+    ioda::ObsDataVector<float> &obserr)
     : TransformBase(options, data, flags, obserr),
       variable_(options.variable),
       group_(options.group) {

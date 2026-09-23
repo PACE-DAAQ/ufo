@@ -25,7 +25,6 @@ public ufo_utils_iogetfreeunit
 public InvertMatrix
 public upper2lower
 public getindex
-public cmp_strings
 public find_unique
 public Ops_RealSortQuick
 public sort_and_unique
@@ -490,10 +489,10 @@ subroutine Ops_QsatWat (QS, &
 implicit none
 
 ! subroutine arguments:
-integer                     :: npnts     ! Points (=horizontal dimensions) being processed by qSAT scheme.
-real(kind=kind_real)        :: T(npnts)  ! Temperature (K).
-real(kind=kind_real)        :: P(npnts)  ! Pressure (Pa).
-real(kind=kind_real)        :: QS(npnts) ! Saturation mixing ratio at temperature T and pressure P (KG/KG)
+integer, intent(in)               :: npnts     ! Points (=horizontal dimensions) being processed by qSAT scheme.
+real(kind=kind_real), intent(in)  :: T(npnts)  ! Temperature (K).
+real(kind=kind_real), intent(in)  :: P(npnts)  ! Pressure (Pa).
+real(kind=kind_real), intent(out) :: QS(npnts) ! Saturation mixing ratio at temperature T and pressure P (KG/KG)
 
 ! Local declarations:
 real(kind=kind_real), parameter :: one_minus_epsilon = one - rd_over_rv
@@ -1140,7 +1139,7 @@ do j = 1, n
   end if
   if (X(j) <= Tolerance) then
     ErrorCode = 1
-    Errormessage = RoutineName//': U matrix is not positive definite'
+    Errormessage = RoutineName//": U matrix is not positive definite"
     call fckit_log % warning(Errormessage)
     goto 9999
   end if
@@ -1272,7 +1271,7 @@ do j = 1, n
     end do
   end if
   if (x(j) <= tolerance) then
-    errormessage = routinename//': Matrix is not positive definite'
+    errormessage = routinename//": Matrix is not positive definite"
     call fckit_log % warning(errormessage)
     status = 1
     goto 9999
@@ -1290,9 +1289,9 @@ if (present (matrix)) then
 else
   ! make sure that the dimensions of tmp were correctly specified
   if (m /= n) then
-    errormessage = routinename//': 2nd and 3rd arguments of routine must be'
+    errormessage = routinename//": 2nd and 3rd arguments of routine must be"
     call fckit_log % warning(errormessage)
-    errormessage = routinename//': identical if the matrix option is not present'
+    errormessage = routinename//": identical if the matrix option is not present"
     call fckit_log % warning(errormessage)
     status = 2
     goto 9999
@@ -1337,81 +1336,6 @@ end if
 9999 continue
 
 end subroutine InvertMatrix
-
-!-------------------------------------------------------------------------------
-! This function will comapre two strings while avoiding trim in order to speed
-! up the string comparison. This will allow for trailing blanks on either string
-! to count for a match.
-!
-! Since the strings may be different lengths coming in (due to trailing blanks)
-! a helper function (cmp_ordered_strings) is called with the shorter string first
-! which helps simplify the logic of the comparison.
-
-function cmp_strings(str1, str2)
-  implicit none
-
-  logical :: cmp_strings
-  character(len=*) :: str1
-  character(len=*) :: str2
-
-  if (len(str1) == len(str2)) then
-    cmp_strings = (str1 == str2)
-  else if (len(str1) < len(str2)) then
-    cmp_strings = cmp_ordered_strings(str1, str2)
-  else
-    cmp_strings = cmp_ordered_strings(str2, str1)
-  endif
-
-  return
-end function cmp_strings
-
-!-------------------------------------------------------------------------------
-! This is a helper function for the public cmp_strings function. It is intended
-! for this function to be called with the arguments of cmp_strings, with the shorter
-! of the two strings in the first argument.
-!
-! The algorithm is to compare each character one by one between each string. Then if
-! one string is longer, continue looking at that string an make sure the remainder
-! consists of blanks before calling it a match between the strings. Knowing that the
-! first argument is the shorter of the two stings helps simplify the code doing the check.
-!
-! The trim call is avoided since it allocates, copies strings and deallocates which
-! collectively are operations that are too expensive.
-
-function cmp_ordered_strings(shorter_str, longer_str)
-  implicit none
-
-  logical :: cmp_ordered_strings
-  character(len=*) :: shorter_str
-  character(len=*) :: longer_str
-
-  integer :: i
-  integer :: j
-
-  ! Check each character from the beginning of the strings to the length of the
-  ! shorter string. Exit the loop right away if a mis-match occurs to save time.
-  cmp_ordered_strings = .true.
-  do i = 1, len(shorter_str)
-    if (shorter_str(i:i) /= longer_str(i:i)) then
-      cmp_ordered_strings = .false.
-      exit
-    endif
-  enddo
-
-  ! If cmp_ordered_strings is false we can return immediately. If true, then we need to check
-  ! that the remainder of the longer string constists of all blank spaces before
-  ! declaring the strings equal.
-  if (cmp_ordered_strings) then
-    do j = i, len(longer_str)
-      if (longer_str(j:j) /= " ") then
-        cmp_ordered_strings = .false.
-        exit
-      endif
-    enddo
-  endif
-
-  return
-end function cmp_ordered_strings
 
 !------------------------------------------------------------------------------
 !> Find the unique entries in the input list
@@ -1582,8 +1506,8 @@ end subroutine sort_and_unique
 
     INTEGER :: ic, i
 
-    CHARACTER(26), PARAMETER :: upper = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'
-    CHARACTER(26), PARAMETER :: lower = 'abcdefghijklmnopqrstuvwxyz'
+    CHARACTER(26), PARAMETER :: upper = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+    CHARACTER(26), PARAMETER :: lower = "abcdefghijklmnopqrstuvwxyz"
 
 !   lowcase each letter if it is lowecase
     string = str
@@ -1598,14 +1522,14 @@ end subroutine sort_and_unique
     IMPLICIT NONE
     CHARACTER(len=*),INTENT(in) :: names(:)
     CHARACTER(len=*),INTENT(in) :: usrname
-    INTEGER i
+    INTEGER :: i
     getindex=-1
     DO i=1,SIZE(names)
       IF(TRIM(usrname)==TRIM(names(i))) THEN
         getindex=i
         EXIT
-      ENDIF
-    ENDDO
+      END IF
+    END DO
   END FUNCTION getindex
 
 end module ufo_utils_mod

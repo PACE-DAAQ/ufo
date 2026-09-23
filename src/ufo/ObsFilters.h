@@ -1,5 +1,5 @@
 /*
- * (C) Copyright 2017-2024 UCAR
+ * (C) Copyright 2017-2026 UCAR
  *
  * This software is licensed under the terms of the Apache Licence Version 2.0
  * which can be obtained at http://www.apache.org/licenses/LICENSE-2.0.
@@ -12,6 +12,7 @@
 
 #include <boost/noncopyable.hpp>
 
+#include "ioda/ObsDataVector.h"
 #include "oops/base/ObsVariables.h"
 #include "oops/base/Variables.h"
 
@@ -20,6 +21,7 @@
 #include "oops/util/Printable.h"
 
 #include "ufo/ObsFilter.h"
+#include "ufo/QCmanager.h"
 
 namespace ioda {
 class ObsSpace;
@@ -65,7 +67,6 @@ class ObsFiltersParameters : public oops::Parameters {
 class ObsFilters : public util::Printable,
                    private boost::noncopyable {
   typedef std::vector<ObsFilterParametersWrapper> FilterParams_;
-  template <typename DATA> using ObsDataPtr_ = std::shared_ptr<ioda::ObsDataVector<DATA> >;
 
  public:
   /// Initialize all filters for \p obspace, from parameters, using
@@ -74,7 +75,7 @@ class ObsFilters : public util::Printable,
   /// assimilation.
   ObsFilters(ioda::ObsSpace &,
              const eckit::Configuration &,
-             ObsDataPtr_<int> qcflags, ObsDataPtr_<float> obserr,
+             ioda::ObsDataVector<int> & flags, ioda::ObsDataVector<float> & obserr,
              const int iteration = 0);
 
   void preProcess();
@@ -95,6 +96,9 @@ class ObsFilters : public util::Printable,
                            std::vector<ObsFilter> & filters);
 
   ioda::ObsSpace & obsspace_;
+  /// QCmanager to handle QC flags and collect statistics,
+  /// whenever at least one filter is configured.
+  std::unique_ptr<QCmanager> qcmanager_;
   // List of filters for which the stage (pre/prior/post) will be determined automatically.
   std::vector<ObsFilter> autoFilters_;
   // List of filters which have been designated to run at the pre stage.
@@ -105,8 +109,9 @@ class ObsFilters : public util::Printable,
   std::vector<ObsFilter> postFilters_;
   oops::Variables geovars_;
   oops::ObsVariables diagvars_;
-  ObsDataPtr_<int> qcflags_;
-  ObsDataPtr_<float> obserrfilter_;
+  ioda::ObsDataVector<int> & qcflags_;
+  ioda::ObsDataVector<float> & obserr_;
+  bool atLeastOneFilterConfigured_ = false;
   const int iteration_;
 };
 

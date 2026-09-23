@@ -1,6 +1,7 @@
 time window:
   begin: 2021-01-15T09:00:00Z
   end: 2021-01-15T15:00:00Z
+  bound to include: begin  # consistency with test data from "ncdiag"
 
 observations:
 - obs operator:
@@ -18,7 +19,6 @@ observations:
       RTTOV_clw_data: false
       RTTOV_GasUnitConv: true
       UseRHwaterForQC: true
-      UseColdSurfaceCheck: false
   obs space:
     name: metop_1_amsua_mhs
     obsdatain:

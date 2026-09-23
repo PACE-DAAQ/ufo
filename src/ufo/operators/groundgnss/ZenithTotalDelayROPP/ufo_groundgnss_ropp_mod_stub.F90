@@ -1,22 +1,22 @@
 ! (C) Copyright 2017-2018 UCAR
-! 
+!
 ! This software is licensed under the terms of the Apache Licence Version 2.0
-! which can be obtained at http://www.apache.org/licenses/LICENSE-2.0. 
+! which can be obtained at http://www.apache.org/licenses/LICENSE-2.0.
 
 !>Stubbed Fortran module for ground based gnss ropp1d forward operator
 !> following the ROPP (2018 Aug) implementation
 
 module ufo_groundgnss_ropp_mod
 
-use iso_c_binding
+use, intrinsic :: iso_c_binding
 use kinds
 use ufo_vars_mod
 use ufo_geovals_mod
 use ufo_geovals_mod_c, only: ufo_geovals_registry
 use ufo_basis_mod,     only: ufo_basis
-use obsspace_mod   
+use obsspace_mod
 use missing_values_mod
-use fckit_log_module,  only : fckit_log
+use logger_mod, only: oops_log
 
 implicit none
 public             :: ufo_groundgnss_ropp
@@ -48,17 +48,17 @@ subroutine ufo_groundgnss_ropp_simobs(self, geovals, hofx, obss)
 
 ! check if nobs is consistent in geovals & hofx
   if (geovals%nlocs /= size(hofx)) then
-      write(err_msg,*) myname_, ' error: nlocs inconsistent!'
+      write(err_msg,*) myname_, " error: nlocs inconsistent!"
       call abor1_ftn(err_msg)
-  endif
+  end if
 
   missingDouble = missing_value(missingDouble)
 
 ! initialize HofX to missing
   hofx(:) = missingDouble
 
-  write(err_msg,*) "TRACE: ufo_groundgnss_ropp_simobs_stub: completed"
-  call fckit_log%info(err_msg)
+  write(err_msg,*) "ufo_groundgnss_ropp_simobs_stub: completed"
+  call oops_log%trace(err_msg)
 
 end subroutine ufo_groundgnss_ropp_simobs
 ! ------------------------------------------------------------------------------

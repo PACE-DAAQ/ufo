@@ -9,7 +9,6 @@
 
 #include "oops/util/Logger.h"
 #include "ufo/filters/FilterUtils.h"
-#include "ufo/filters/getScalarOrFilterData.h"
 #include "ufo/filters/ObsAccessor.h"
 #include "ufo/filters/OceanVerticalStabilityCheck.h"
 #include "ufo/filters/SpikeAndStepCheck.h"
@@ -22,8 +21,8 @@ namespace ufo {
 OceanVerticalStabilityCheck::OceanVerticalStabilityCheck(
         ioda::ObsSpace & obsdb,
         const Parameters_ & parameters,
-        std::shared_ptr<ioda::ObsDataVector<int> > flags,
-        std::shared_ptr<ioda::ObsDataVector<float> > obserr)
+        ioda::ObsDataVector<int> & flags,
+        ioda::ObsDataVector<float> & obserr)
   : FilterBase(obsdb, parameters, flags, obserr), parameters_(parameters)
 {
   oops::Log::trace() << "OceanVerticalStabilityCheck constructor" << std::endl;
@@ -90,7 +89,7 @@ void OceanVerticalStabilityCheck::applyFilter(const std::vector<bool> & apply,
     //  if any filter variable fails QC):
     const std::vector<size_t> obs_indices = obsAccessor.getValidObsIdsInProfile(iProfile,
                                                                                 apply,
-                                                                                *flags_,
+                                                                                flags_,
                                                                                 filtervars,
                                                                                 false);
 
@@ -110,8 +109,10 @@ void OceanVerticalStabilityCheck::applyFilter(const std::vector<bool> & apply,
   obsAccessor.flagRejectedObservations(isThinned, flagged);
   for (size_t filterVarIndex = 0; filterVarIndex < filtervars.size(); ++filterVarIndex) {
     const std::string filterVarName = filtervars.variable(filterVarIndex).variable();
-    obsdb_.put_db("DiagnosticFlags/DensitySpike", filterVarName, spikeFlag);
-    obsdb_.put_db("DiagnosticFlags/DensityStep", filterVarName, stepFlag);
+    obsdb_.put_db("DiagnosticFlags/DensitySpike", filterVarName, spikeFlag,
+                  filtervars.variable(filterVarIndex).dimList());
+    obsdb_.put_db("DiagnosticFlags/DensityStep", filterVarName, stepFlag,
+                  filtervars.variable(filterVarIndex).dimList());
   }
   oops::Log::trace() << "OceanVerticalStabilityCheck applyFilter complete" << std::endl;
 }

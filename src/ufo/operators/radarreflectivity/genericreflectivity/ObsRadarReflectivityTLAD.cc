@@ -27,7 +27,8 @@ makerRadarReflectivityTL_("RadarReflectivity");
 
 ObsRadarReflectivityTLAD::ObsRadarReflectivityTLAD(const ioda::ObsSpace & odb,
                                                    const Parameters_ & params)
-  : LinearObsOperatorBase(odb, VariableNameMap(params.AliasFile.value())),
+  : LinearObsOperatorBase(odb, VariableNameMap(params.AliasFile.value(),
+                                               params.variableMaps.value())),
     odb_(odb)
 {
   oops::Log::trace() << "ObsRadarReflectivityTLAD constructor start" << std::endl;
@@ -78,20 +79,18 @@ void ObsRadarReflectivityTLAD::setTrajectory(const GeoVaLs & gv,
 // -----------------------------------------------------------------------------
 
 void ObsRadarReflectivityTLAD::simulateObsTL(const GeoVaLs & dx,
-                                             ioda::ObsVector & dy,
-                                             const QCFlags_t & flag) const {
+                                             ioda::ObsVector & dy) const {
   oops::Log::trace() << "ObsRadarReflectivityTLAD::simulateObsTL start" << std::endl;
-  reflectivityAlgorithm_->simulateObsTL(dx, dy, flag);
+  reflectivityAlgorithm_->simulateObsTL(dx, dy);
   oops::Log::trace() << "ObsRadarReflectivityTLAD::simulateObsTL done" <<  std::endl;
 }
 
 // -----------------------------------------------------------------------------
 
 void ObsRadarReflectivityTLAD::simulateObsAD(GeoVaLs & dx,
-                                             const ioda::ObsVector & dy,
-                                             const QCFlags_t & flag) const {
+                                             const ioda::ObsVector & dy) const {
   oops::Log::trace() << "ObsRadarReflectivityTLAD::simulateObsAD start" << std::endl;
-  reflectivityAlgorithm_->simulateObsAD(dx, dy, flag);
+  reflectivityAlgorithm_->simulateObsAD(dx, dy);
   oops::Log::trace() << "ObsRadarReflectivityTLAD::simulateObsAD done" <<  std::endl;
 }
 

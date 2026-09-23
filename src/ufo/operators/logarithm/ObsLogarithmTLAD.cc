@@ -32,7 +32,8 @@ static LinearObsOperatorMaker<ObsLogarithmTLAD> makerLogarithmTL_("Logarithm");
 
 ObsLogarithmTLAD::ObsLogarithmTLAD(const ioda::ObsSpace& odb,
                                    const Parameters_& parameters)
-    : LinearObsOperatorBase(odb, VariableNameMap(parameters.AliasFile.value())),
+    : LinearObsOperatorBase(odb, VariableNameMap(parameters.AliasFile.value(),
+                                                 parameters.variableMaps.value())),
       odb_(odb) {
   oops::Log::trace() << "ObsLogarithmTLAD constructor start" << std::endl;
 
@@ -98,8 +99,7 @@ void ObsLogarithmTLAD::setTrajectory(const GeoVaLs& gv, ObsDiagnostics&,
 
 // -----------------------------------------------------------------------------
 
-void ObsLogarithmTLAD::simulateObsTL(const GeoVaLs& dx, ioda::ObsVector& dy,
-                                     const QCFlags_t& qc_flags) const {
+void ObsLogarithmTLAD::simulateObsTL(const GeoVaLs& dx, ioda::ObsVector& dy) const {
   oops::Log::trace() << "ObsLogarithmTLAD::simulateObsTL start"
                      << std::endl;
 
@@ -138,8 +138,7 @@ void ObsLogarithmTLAD::simulateObsTL(const GeoVaLs& dx, ioda::ObsVector& dy,
 
 // -----------------------------------------------------------------------------
 
-void ObsLogarithmTLAD::simulateObsAD(GeoVaLs& dx, const ioda::ObsVector& dy,
-                                     const QCFlags_t& qc_flags) const {
+void ObsLogarithmTLAD::simulateObsAD(GeoVaLs& dx, const ioda::ObsVector& dy) const {
   oops::Log::trace()
       << "ObsLogarithmTLAD::simulateObsAD start" << std::endl;
 

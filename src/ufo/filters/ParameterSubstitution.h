@@ -110,8 +110,8 @@ class ParameterSubstitution : public ObsFilterBase,
 
   ParameterSubstitution(ioda::ObsSpace &,
                         const Parameters_ &,
-                        std::shared_ptr<ioda::ObsDataVector<int> >,
-                        std::shared_ptr<ioda::ObsDataVector<float> >);
+                        ioda::ObsDataVector<int> &,
+                        ioda::ObsDataVector<float> &);
 
   ~ParameterSubstitution() {}
 
@@ -124,7 +124,7 @@ class ParameterSubstitution : public ObsFilterBase,
   void checkFilterData(const FilterStage) override;
   oops::Variables requiredVars() const override;
   oops::ObsVariables requiredHdiagnostics() const override;
-  void print(std::ostream & os) const;
+  void print(std::ostream & os) const override;
 
  private:
   const Parameters_ parameters_;

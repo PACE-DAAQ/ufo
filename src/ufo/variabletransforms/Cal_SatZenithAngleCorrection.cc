@@ -5,12 +5,13 @@
  * which can be obtained at http://www.apache.org/licenses/LICENSE-2.0.
  */
 
+#include "ufo/variabletransforms/Cal_SatZenithAngleCorrection.h"
+
 #include <algorithm>
 #include <cmath>
 
+#include "ioda/ObsSpace.h"
 #include "oops/base/Variables.h"
-
-#include "ufo/variabletransforms/Cal_SatZenithAngleCorrection.h"
 
 namespace ufo {
 
@@ -24,8 +25,8 @@ static TransformMaker<Cal_SatZenithAngleCorrection>
 Cal_SatZenithAngleCorrection::Cal_SatZenithAngleCorrection(
     const Parameters_ &options,
     const ObsFilterData &data,
-    const std::shared_ptr<ioda::ObsDataVector<int>> &flags,
-    const std::shared_ptr<ioda::ObsDataVector<float>> &obserr)
+    ioda::ObsDataVector<int> &flags,
+    ioda::ObsDataVector<float> &obserr)
     : TransformBase(options, data, flags, obserr), parameters_(options),
       variables_({parameters_.transformVariable.value()}) {
   ASSERT(parameters_.coeffA.value().size() == parameters_.transformVariable.value().size());

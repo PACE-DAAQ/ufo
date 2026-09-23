@@ -1,6 +1,7 @@
 time window:
   begin: 2018-04-14T21:00:00Z
   end: 2018-04-15T03:00:00Z
+  bound to include: begin  # consistency with test data from "ncdiag"
 
 observations:
 - obs operator:
@@ -180,8 +181,12 @@ observations:
         name: ObsFunction/ObsErrorFactorTopoRad
         channels: *all_channels
         options:
-          sensor: *Sensor_ID
+          sensor: microwave
           channels: *all_channels
+          height groups:
+          - channels: 1-7, 16-22
+          - channels: 8
+            height: 4000
 #   passedBenchmark: 1564
 #  Transmittnace Top Check
   - filter: BlackList
@@ -297,7 +302,11 @@ observations:
           channels: *all_channels
           options:
             channels: *all_channels
-            sensor: *Sensor_ID
+            sensor: microwave
+            height groups:
+            - channels: 1-7, 16-22
+            - channels: 8
+              height: 4000
         obserr_function:
           name: ObsFunction/ObsErrorModelRamp
           channels: *all_channels

@@ -12,6 +12,7 @@ module ufo_refractivityonedvarcheck_do1dvar_mod
 use kinds, only: kind_real
 use missing_values_mod, only: missing_value
 use logger_mod, only: oops_log
+implicit none
 
 private
 public :: Refractivity_Do1DVar
@@ -22,28 +23,30 @@ contains
 ! Find a solution to the satellite sounding inverse problem
 !-------------------------------------------------------------------------------
 SUBROUTINE Refractivity_Do1DVar (nlevp,                  &
-                              nlevq,                  &
-                              BM1,                    &
-                              Bsig,                   &
-                              Back,                   &
-                              Ob,                     &
-                              RMatrix,                &
-                              GPSRO_pseudo_ops,       &
-                              GPSRO_vert_interp_ops,  &
-                              GPSRO_min_temp_grad,    &
-                              GPSRO_cost_funct_test,  &   ! Threshold value for the cost function convergence test
-                              GPSRO_y_test,           &   ! Threshold value for the yobs-ysol tes
-                              GPSRO_n_iteration_test, &   ! Maximum number of iterations
-                              GPSRO_Delta_factor,     &   ! Delta
-                              GPSRO_Delta_ct2,        &   ! Delta observations
-                              GPSRO_OB_test,          &   ! Threshold value for the O-B test
-                              minval_ytest,           &   ! Minimum value for RHS of y-test
-                              maxval_ytest,           &   ! Maximum value for RHS of y-test
-                              capsupersat,            &
-                              RefracErr,              &
-                              Tb,                     &
-                              Ts,                     &
-                              O_Bdiff,                &
+                              nlevq,                   &
+                              BM1,                     &
+                              Bsig,                    &
+                              Back,                    &
+                              Ob,                      &
+                              RMatrix,                 &
+                              GPSRO_pseudo_ops,        &
+                              GPSRO_vert_interp_ops,   &
+                              GPSRO_min_temp_grad,     &
+                              GPSRO_cost_funct_test,   &   ! Threshold value for the cost function convergence test
+                              GPSRO_y_test,            &   ! Threshold value for the yobs-ysol tes
+                              GPSRO_n_iteration_test,  &   ! Maximum number of iterations
+                              GPSRO_Delta_factor,      &   ! Delta
+                              GPSRO_Delta_ct2,         &   ! Delta observations
+                              GPSRO_OB_test,           &   ! Threshold value for the O-B test
+                              minval_ytest,            &   ! Minimum value for RHS of y-test
+                              maxval_ytest,            &   ! Maximum value for RHS of y-test
+                              capsupersat,             &
+                              dryRefractivityConstant, &
+                              wetRefractivityConstant, &
+                              RefracErr,               &
+                              Tb,                      &
+                              Ts,                      &
+                              O_Bdiff,                 &
                               DFS)
 
 use ufo_gnssroonedvarcheck_setom1_mod, only: &
@@ -84,6 +87,8 @@ REAL(kind_real), INTENT(IN)            :: GPSRO_OB_test           !< Threshold v
 REAL(kind_real), INTENT(IN)            :: minval_ytest            !< Minimum value for RHS of y-test
 REAL(kind_real), INTENT(IN)            :: maxval_ytest            !< Maximum value for RHS of y-test
 LOGICAL, INTENT(IN)                    :: capsupersat             !< Remove super-saturation?
+REAL(kind_real), INTENT(IN)            :: dryRefractivityConstant !< Dry refractivity constant
+REAL(kind_real), INTENT(IN)            :: wetRefractivityConstant !< Wet refractivity constant
 LOGICAL, INTENT(OUT)                   :: RefracErr               !< Were there errors in the refractivity calculation?
 REAL(kind_real), INTENT(INOUT)         :: Tb(nlevq)               !< Calculated background temperature
 REAL(kind_real), INTENT(INOUT)         :: Ts(nlevq)               !< 1DVar solution temperature
@@ -139,9 +144,9 @@ nobs = COUNT (Ob % refractivity(:) % value /= missing_value(Ob % refractivity(1)
               Ob % z(:) % value /= missing_value(Ob % z(1) % value) .AND. &                       ! not missing height
               Ob % qc_flags(:) == 0)                                                              ! not flagged as bad
 
-WRITE (message, '(A,I0)') 'size of input obs vector ', SIZE (Ob % Refractivity(:) % value)
+WRITE (message, "(A,I0)") "size of input obs vector ", SIZE (Ob % Refractivity(:) % value)
 call oops_log % info(message)
-WRITE (message, '(A,I0)') 'size of packed obs vector ', nobs
+WRITE (message, "(A,I0)") "size of packed obs vector ", nobs
 call oops_log % info(message)
 
 ! Only continue if we have some observations to process
@@ -178,7 +183,7 @@ IF (nobs > 0) THEN
       j = j + 1
     END IF
   END DO
-  
+
   CALL Ops_GPSRO_setOM1( &
     nobs,     &  ! Number of observations
     zobs,     &  ! Height of observations
@@ -227,6 +232,8 @@ IF (nobs > 0) THEN
       GPSRO_vert_interp_ops,     &
       GPSRO_min_temp_grad,       &
       capsupersat,               &
+      dryRefractivityConstant,   &
+      wetRefractivityConstant,   &
       O_Bdiff,                   &    ! observed -background BA value
       Tb,                        &
       Ts,                        &
@@ -339,14 +346,14 @@ IF (nobs > 0) THEN
 
 ELSE
   IF (nobs <= 10) THEN
-    WRITE (message, '(A)') 'nobs is less than 10: exit Refractivity_Do1DVar'
+    WRITE (message, "(A)") "nobs is less than 10: exit Refractivity_Do1DVar"
     call oops_log % info(message)
 
     Ob % refractivity(:) % PGEFinal = 0.55     ! flag lack of observation data
   END IF
 
   IF (RefracErr) THEN
-    WRITE (message, '(A)') 'Error in Ops_Refractivity: exit Refractivity_Do1DVar'
+    WRITE (message, "(A)") "Error in Ops_Refractivity: exit Refractivity_Do1DVar"
     call oops_log % info(message)
     Ob % refractivity(:) % PGEFinal = 0.58     ! flag RefracErr
   END IF

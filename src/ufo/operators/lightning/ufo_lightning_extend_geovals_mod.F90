@@ -1,6 +1,6 @@
 module ufo_lightning_extend_geovals_mod
 
-  use iso_c_binding, only: c_ptr, c_float
+  use, intrinsic :: iso_c_binding, only: c_ptr, c_float
   use fckit_log_module, only: fckit_log
   use kinds, only: kind_real
 
@@ -44,8 +44,8 @@ subroutine ufo_lightning_extend_geovals(self, obss, nlocs_ext, lons, lats)
   do i = 1, nlocs
     call find_partner_points(lat(i), lon(i), n_horiz, plat_2d, plon_2d, kerror)
     if (kerror > 0) then
-        write(err_msg,*) myname, ' error: find_partner_points does not run successfully!' 
-    endif
+        write(err_msg,*) myname, " error: find_partner_points does not run successfully!"
+    end if
     lons((i-1)*n_horiz+1 : i*n_horiz) = plon_2d
     lats((i-1)*n_horiz+1 : i*n_horiz) = plat_2d
     ! Save extended locations to the ufo_lightning object
@@ -59,10 +59,10 @@ end subroutine ufo_lightning_extend_geovals
 !-------------------------------------------------------------------------
 
 ! This subroutine calculates partner points around a central observation point,
-! simulating a 15x15 km^2 grid area. These points are used for ordering extended 
+! simulating a 15x15 km^2 grid area. These points are used for ordering extended
 ! geovals and facilitating horizontal integration within the observation operators.
 subroutine find_partner_points(center_lat, center_lon, n_horiz, plat_2d, plon_2d, kerror)
-  use ufo_constants_mod, only: mean_earth_rad, pi
+  use ufo_constants_mod, only: mean_earth_rad_m, pi
   implicit none
 
   real(kind_real), intent(in) :: center_lat, center_lon
@@ -78,7 +78,7 @@ subroutine find_partner_points(center_lat, center_lon, n_horiz, plat_2d, plon_2d
   ! Calculate latitude increment (delta_lat) for grid points
   ! This approximation works well for small areas where Earth's curvature is minimal.
   ! It converts a distance on Earth's surface to an angular change in latitude.
-  delta_lat = (distance /(1000 * mean_earth_rad)) * (180.0 / pi)
+  delta_lat = (distance / mean_earth_rad_m) * (180.0 / pi)
 
   ! Calculate longitude increment (delta_lon) for grid points
   ! Adjusts for Earth's shape by accounting for the cosine of the latitude,

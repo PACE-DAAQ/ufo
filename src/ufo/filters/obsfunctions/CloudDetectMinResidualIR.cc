@@ -19,6 +19,7 @@
 
 #include "ioda/ObsDataVector.h"
 #include "oops/util/IntSetParser.h"
+#include "oops/util/Logger.h"
 #include "oops/util/missingValues.h"
 #include "ufo/filters/Variable.h"
 #include "ufo/utils/Constants.h"
@@ -152,7 +153,7 @@ void CloudDetectMinResidualIR::compute(const ObsFilterData & in,
     in.get(Variable(flaggrp+"/brightnessTemperature", channels_)[ichan], qcflag);
     for (size_t iloc = 0; iloc < nlocs; ++iloc) {
       if (flaggrp == "PreQC") values[iloc] == missing ? qcflag[iloc] = 100 : qcflag[iloc] = 0;
-      (qcflag[iloc] == 0) ? (values[iloc] = 1.0 / pow(values[iloc], 2)) : (values[iloc] = 0.0);
+      (qcflag[iloc] == 0) ? (values[iloc] = 1.0 / std::pow(values[iloc], 2)) : (values[iloc] = 0.0);
       if (use_flag_clddet[ichan] > 0 && use_flag_clddet[ichan]%2 == 1)
           varinv_use[ichan][iloc] = values[iloc];
     }
@@ -247,23 +248,14 @@ void CloudDetectMinResidualIR::compute(const ObsFilterData & in,
 
   // Minimum Residual Method (MRM) for Cloud Detection:
   // Determine model level index of the cloud top (lcloud)
-  // Find pressure of the cloud top (cldprs)
   // Estimate cloud fraction (cldfrac)
   // output: out = 0 clear channel
   //         out = 1 cloudy channel
   //         out = 2 clear channel but too sensitive to surface condition
 
-  // Set vectors to hold cloud infomation from cloud detection (cab be part of the output)
-  // std::vector<float> cloud_prsl(nlocs);
-  // std::vector<float> cloud_frac(nlocs);
-  // std::vector<int> cloud_lev(nlocs);
 
   // Loop through locations
   for (size_t iloc=0; iloc < nlocs; ++iloc) {
-    // Initialize at each location
-    // cloud_lev[iloc] = 0;
-    // cloud_prsl[iloc] = 0.0;
-    // cloud_frac[iloc] = 0.0;
     float sum = 0.0, sum2 = 0.0, sum3 = 0.0;
     float tmp = 0.0;
     float cloudp = 0.0;
@@ -278,7 +270,6 @@ void CloudDetectMinResidualIR::compute(const ObsFilterData & in,
     // Set initial cloud condition
     int lcloud = 0;
     float cldfrac = 0.0;
-    float cldprs = prsl[0][iloc] * 0.01;     // convert from [Pa] to [hPa]
     float sum_min = 1.e20;
 
     // Loop through vertical layer from surface to model top
@@ -301,7 +292,7 @@ void CloudDetectMinResidualIR::compute(const ObsFilterData & in,
             sum2 = sum2 +  dbt[ichan] * dbt[ichan] * varinv_use[ichan][iloc];
           }
         }
-        if (fabs(sum2) < FLT_MIN) sum2 = copysign(1.0e-12, sum2);
+        if (std::fabs(sum2) < FLT_MIN) sum2 = copysign(1.0e-12, sum2);
         cloudp = std::min(std::max((sum/sum2), 0.f), 1.f);
         sum = 0.0;
         for (size_t ichan = 0; ichan < nchans; ++ichan) {
@@ -314,7 +305,6 @@ void CloudDetectMinResidualIR::compute(const ObsFilterData & in,
           sum_min = sum;
           lcloud = k + 1;   // array index + 1 -> model coordinate index
           cldfrac = cloudp;
-          cldprs = prsl[k][iloc] * 0.01;
         }
       }
     // end of vertical loop
@@ -343,10 +333,6 @@ void CloudDetectMinResidualIR::compute(const ObsFilterData & in,
         // Active channels
         if (out[ichan][iloc] < 1 && tao_cld > 0.02) out[ichan][iloc] = 1;
       }
-      // cloud infomation output at model level
-      // cloud_lev[iloc] = lcloud;
-      // cloud_prsl[iloc] = cldprs;
-      // cloud_frac[iloc] = cldfrac;
     } else {
     // If no clouds is detected, do sensivity to surface temperature check
     // Initialize at each location
@@ -359,7 +345,7 @@ void CloudDetectMinResidualIR::compute(const ObsFilterData & in,
         sum = sum + innovation[ichan][iloc] * dbtdts[ichan][iloc] * varinv_use[ichan][iloc];
         sum2 = sum2 + dbtdts[ichan][iloc] * dbtdts[ichan][iloc] * varinv_use[ichan][iloc];
       }
-      if (fabs(sum2) < FLT_MIN) sum2 = copysign(1.0e-12, sum2);
+      if (std::fabs(sum2) < FLT_MIN) sum2 = copysign(1.0e-12, sum2);
       dts = std::fabs(sum / sum2);
       if (std::abs(dts) > 1.0) {
         if (sea[iloc] == false) {

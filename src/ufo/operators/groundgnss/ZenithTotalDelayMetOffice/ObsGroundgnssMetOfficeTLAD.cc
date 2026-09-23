@@ -31,12 +31,18 @@ ObsGroundgnssMetOfficeTLAD::ObsGroundgnssMetOfficeTLAD(const ioda::ObsSpace & od
                                                const Parameters_ & parameters)
   : LinearObsOperatorBase(odb), keyOperGroundgnssMetOffice_(0), varin_()
 {
-  ufo_groundgnss_metoffice_tlad_setup_f90(keyOperGroundgnssMetOffice_,
-                                          parameters.toConfiguration());
   const std::vector<std::string> vv{"air_pressure_levels",
       "water_vapor_mixing_ratio_wrt_moist_air"};
 
   varin_.reset(new oops::Variables(vv));
+
+  ufo_groundgnss_metoffice_tlad_setup_f90(keyOperGroundgnssMetOffice_,
+                                          parameters.vertInterpOPS.value(),
+                                          parameters.pseudoLevels.value(),
+                                          parameters.minTempGrad.value(),
+                                          parameters.dryRefractivityConstant.value(),
+                                          parameters.wetRefractivityConstant.value());
+
   oops::Log::info() << "ObsGroundgnssMetOfficeTLAD vars: " << *varin_ << std::endl;
   oops::Log::trace() << "ObsGroundgnssMetOfficeTLAD constructor done" << std::endl;
 }
@@ -60,7 +66,7 @@ void ObsGroundgnssMetOfficeTLAD::setTrajectory(const GeoVaLs & geovals, ObsDiagn
 // -----------------------------------------------------------------------------
 
 void ObsGroundgnssMetOfficeTLAD::simulateObsTL(
-        const GeoVaLs & geovals, ioda::ObsVector & ovec, const QCFlags_t & qc_flags) const {
+        const GeoVaLs & geovals, ioda::ObsVector & ovec) const {
   ufo_groundgnss_metoffice_simobs_tl_f90(keyOperGroundgnssMetOffice_, geovals.toFortran(),
                                          obsspace(), ovec.size(), ovec.toFortran());
   oops::Log::trace() << "ObsGroundgnssMetOfficeTLAD::simulateObsTL done." << std::endl;
@@ -69,7 +75,7 @@ void ObsGroundgnssMetOfficeTLAD::simulateObsTL(
 // -----------------------------------------------------------------------------
 
 void ObsGroundgnssMetOfficeTLAD::simulateObsAD(
-        GeoVaLs & geovals, const ioda::ObsVector & ovec, const QCFlags_t & qc_flags) const {
+        GeoVaLs & geovals, const ioda::ObsVector & ovec) const {
   ufo_groundgnss_metoffice_simobs_ad_f90(keyOperGroundgnssMetOffice_, geovals.toFortran(),
                                          obsspace(), ovec.size(), ovec.toFortran());
   oops::Log::trace() << "ObsGroundgnssMetOfficeTLAD::simulateObsAD done." << std::endl;

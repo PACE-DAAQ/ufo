@@ -22,7 +22,7 @@
 !!
 module ufo_scatwind_neutralmetoffice_mod
 
-use iso_c_binding
+use, intrinsic :: iso_c_binding
 use kinds
 use ufo_vars_mod
 use ufo_geovals_mod
@@ -32,7 +32,7 @@ use obsspace_mod
 use oops_variables_mod
 use obs_variables_mod
 use missing_values_mod
-use fckit_log_module,  only : fckit_log
+use logger_mod, only: oops_log
 use fckit_exception_module,  only : fckit_exception
 
 implicit none
@@ -52,14 +52,14 @@ type, public :: ufo_scatwind_neutralmetoffice
     procedure :: simobs    => ufo_scatwind_neutralmetoffice_simobs
 end type ufo_scatwind_neutralmetoffice
 
-character(len=maxvarlen), dimension(7), parameter :: geovars_default = (/ &
+character(len=maxvarlen), dimension(7), parameter :: geovars_default = [ &
                                                              var_u,            &
                                                              var_v,            &
                                                              var_zimo,         &
                                                              var_sfc_ifrac,    &
                                                              var_sfc_geomz,    &
                                                              var_sea_fric_vel, &
-                                                             var_obk_length /)
+                                                             var_obk_length ]
 
 ! ------------------------------------------------------------------------------
 contains
@@ -133,38 +133,25 @@ subroutine ufo_scatwind_neutralmetoffice_simobs(self, geovals, obss, nvars, &
   integer                            :: nchans
   integer                            :: ichan
 
-  write(err_msg,*) "TRACE: ufo_scatwind_neutralmetoffice_simobs: begin"
-  call fckit_log%info(err_msg)
+  write(err_msg,*) "ufo_scatwind_neutralmetoffice_simobs: begin"
+  call oops_log%trace(err_msg)
 
   ! check if nlocs is consistent in geovals & hofx
   if (geovals%nlocs /= size(hofx(1,:))) then
-    write(err_msg,*) myname_, ' error: nlocs inconsistent!'
+    write(err_msg,*) myname_, " error: nlocs inconsistent!"
     call abor1_ftn(err_msg)
-  endif
-
-  ! number of channels
-  nchans = size(self%channels)
-
-  ! check that hofx is the correct size for simulated variables
-  ! if we have channels as second dimension then we should have 2*nchans variables
-  ! if we have a single dimension then we should have 2 variables
-  if (nchans /= 0) then
-    if (size(hofx(:,1)) /= 2*nchans) then
-      write(err_msg, '(A,I5,A,I5)') "HofX should have nchans variables for both windEastward and windNorthward. Was given ", size(hofx(:,1)), " but expected ", 2*nchans
-      call fckit_exception%throw(err_msg)
-    endif
-  else
-    if (size(hofx(:,1)) /= 2) then
-      call fckit_exception%throw("HofX should have 2 variables windEastward and windNorthward")
-    endif
   end if
 
-  write(message, *) myname_, ' Running Met Office neutral wind operator with'
-  call fckit_log%info(message)
+  if (mod(size(hofx,dim=1),2) /= 0) then
+    call fckit_exception%throw("HofX should have 2 variables windEastward and windNorthward")
+  end if
 
-  write(message, *) 'surface_type_check =', self % surface_type_check, &
-    'surface_type_sea =', self % surface_type_sea
-  call fckit_log%info(message)
+  write(message, *) myname_, " Running Met Office neutral wind operator with"
+  call oops_log%trace(message)
+
+  write(message, *) "surface_type_check =", self % surface_type_check, &
+    "surface_type_sea =", self % surface_type_sea
+  call oops_log%trace(message)
 
   ! get variables from geovals
   call ufo_geovals_get_var(geovals, var_u, cx_u)                        ! Eastward wind
@@ -183,8 +170,8 @@ subroutine ufo_scatwind_neutralmetoffice_simobs(self, geovals, obss, nvars, &
     call obsspace_get_db(obss, "MetaData", "surfaceQualifier", surface_type)
   end if
 
-  write(err_msg,*) "TRACE: ufo_scatwind_neutralmetoffice_simobs: begin observation loop, nobs =  ", nlocs
-  call fckit_log%info(err_msg)
+  write(err_msg,*) "ufo_scatwind_neutralmetoffice_simobs: begin observation loop, nobs =  ", nlocs
+  call oops_log%trace(err_msg)
 
   obs_loop: do iobs = 1, nlocs
     call ops_scatwind_forwardmodel(cx_za % nval,                     &
@@ -203,20 +190,19 @@ subroutine ufo_scatwind_neutralmetoffice_simobs(self, geovals, obss, nvars, &
   deallocate(surface_type)
   deallocate(CDR10)
 
-  ! if we have channels then need to spread these values across the channels correctly
-  if (nchans /= 0) then
-    ! windEastward hofx is stored in slot 1
-    hofx_u = hofx(1,:)
-    ! windNorthward hofx is stored in slot 2
-    hofx_v = hofx(2,:)
-    chan_loop: do ichan = 1, nchans
-      hofx(ichan,:) = hofx_u
-      hofx(ichan+nchans,:) = hofx_v
-    end do chan_loop
-  end if
+  ! Need to spread these values across the channels correctly
+  ! windEastward hofx is stored in slot 1
+  hofx_u = hofx(1,:)
+  ! windNorthward hofx is stored in slot 2
+  hofx_v = hofx(2,:)
+  nchans = size(hofx,dim=1)/2
+  chan_loop: do ichan = 1, nchans
+    hofx(ichan,:) = hofx_u
+    hofx(ichan+nchans,:) = hofx_v
+  end do chan_loop
 
-  write(err_msg,*) "TRACE: ufo_scatwind_neutralmetoffice_simobs: completed"
-  call fckit_log%info(err_msg)
+  write(err_msg,*) "ufo_scatwind_neutralmetoffice_simobs: completed"
+  call oops_log%trace(err_msg)
 
 end subroutine ufo_scatwind_neutralmetoffice_simobs
 
@@ -464,7 +450,7 @@ real(kind_real), intent(in) :: z_uv       !< Height of wind level above roughnes
 real, intent(in)            :: z0m        !< Roughness length for momentum (m).
 real, intent(out)           :: phi_m      !< Stability function for momentum.
 ! Local declarations:
-character(len=*), parameter :: RoutineName = 'ops_scatwind_phi_m_sea'
+character(len=*), parameter :: RoutineName = "ops_scatwind_phi_m_sea"
 real, parameter             :: a = 1.0
 real, parameter             :: b = 2.0 / 3.0
 real, parameter             :: c = 5.0

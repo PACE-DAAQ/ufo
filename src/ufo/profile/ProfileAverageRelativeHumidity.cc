@@ -69,14 +69,14 @@ namespace ufo {
     // In order to correctly handle MPI ranks with zero entries,
     // ensure that all of the variables defined above have been added to the ObsSpace
     // on each rank. This prevents a hang when saving the ObsSpace.
-    for (const auto variableInt : variableNamesInt) {
-      const auto & vectorInt = profileDataHandler.get<int>(variableInt);
+    for (const auto & variableInt : variableNamesInt) {
+      profileDataHandler.get<int>(variableInt);
     }
-    for (const auto variableFloat : variableNamesFloat) {
-      const auto & vectorFloat = profileDataHandler.get<float>(variableFloat);
+    for (const auto & variableFloat : variableNamesFloat) {
+      profileDataHandler.get<float>(variableFloat);
     }
-    for (const auto variableBool : variableNamesBool) {
-      const auto & vectorBool = profileDataHandler.get<bool>(variableBool);
+    for (const auto & variableBool : variableNamesBool) {
+      profileDataHandler.get<bool>(variableBool);
     }
 
     std::vector <ProfileDataHolder> profiles =
@@ -104,7 +104,12 @@ namespace ufo {
        "relativeHumidity",
        ufo::ProfileVariableNames::relative_humidity_derived);
 
-    // Fill validation information if required.
+    // Fill validation information if required - note we have to scale the
+    // GeoVals  (which are always a fraction) to match the units of the observed
+    // values. Note that the "GeoVals" here are not actually from the model, but
+    // are test reference values that are read in from a file for the purposes
+    // of comparison with OPS.
+    const float geovalsScale = relativeHumidityAtSaturation();
     if (options_.compareWithOPS.value()) {
       oops::Log::debug() << " Filling validation data" << std::endl;
       for (size_t jprof = 0; jprof < halfnprofs * 2; ++jprof) {
@@ -115,7 +120,8 @@ namespace ufo {
            ufo::ProfileVariableNames::diagflags_final_reject_rh,
            oops::Variable{ufo::ProfileVariableNames::geovals_testreference_relative_humidity},
            oops::Variable
-           {ufo::ProfileVariableNames::geovals_testreference_relative_humidity_qcflags});
+           {ufo::ProfileVariableNames::geovals_testreference_relative_humidity_qcflags},
+           geovalsScale);
       }
     }
 

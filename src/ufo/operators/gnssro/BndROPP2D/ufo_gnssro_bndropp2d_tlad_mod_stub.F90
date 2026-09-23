@@ -1,15 +1,16 @@
 ! (C) Copyright 2017-2018 UCAR
-! 
+!
 ! This software is licensed under the terms of the Apache Licence Version 2.0
-! which can be obtained at http://www.apache.org/licenses/LICENSE-2.0. 
+! which can be obtained at http://www.apache.org/licenses/LICENSE-2.0.
 
 !> Stubbed Fortran module for gnssro bending angle ropp2d tangent linear and adjoint
 !> following the ROPP (2018 Aug) implementation
 
 module ufo_gnssro_bndropp2d_tlad_mod
 
-use fckit_configuration_module, only: fckit_configuration 
-use kinds
+use, intrinsic :: iso_c_binding, only: c_double, c_ptr
+use fckit_configuration_module, only: fckit_configuration
+use kinds, only: kind_real
 use ufo_vars_mod
 use ufo_geovals_mod
 use ufo_geovals_mod_c,   only: ufo_geovals_registry
@@ -17,13 +18,15 @@ use vert_interp_mod
 use ufo_basis_tlad_mod,  only: ufo_basis_tlad
 use obsspace_mod
 use gnssro_mod_conf
-use missing_values_mod
-use fckit_log_module, only : fckit_log
+use missing_values_mod, only: missing_value
+use logger_mod, only: oops_log
+implicit none
+private
 
 integer, parameter         :: max_string=800
 
 !> Fortran derived type for gnssro trajectory
-type, extends(ufo_basis_tlad)   ::  ufo_gnssro_BndROPP2D_tlad
+type, extends(ufo_basis_tlad), public ::  ufo_gnssro_BndROPP2D_tlad
   private
   integer                       :: nval, nlocs
   real(kind_real), allocatable  :: prs(:,:), t(:,:), q(:,:), gph(:,:), gph_sfc(:,:)
@@ -51,9 +54,9 @@ subroutine ufo_gnssro_bndropp2d_tlad_setup(self, f_conf)
 
 end subroutine ufo_gnssro_bndropp2d_tlad_setup
 
-! ------------------------------------------------------------------------------    
+! ------------------------------------------------------------------------------
 subroutine ufo_gnssro_bndropp2d_tlad_settraj(self, geovals, obss)
-       
+
   implicit none
   class(ufo_gnssro_BndROPP2D_tlad), intent(inout) :: self
   type(ufo_geovals),                intent(in)    :: geovals
@@ -63,16 +66,16 @@ subroutine ufo_gnssro_bndropp2d_tlad_settraj(self, geovals, obss)
   type(ufo_geoval), pointer   :: t, q, prs, gph, gph_sfc
   integer                     :: iobs
 
-  write(err_msg,*) "TRACE: ufo_gnssro_bndropp2d_tlad_settraj: begin"
-  call fckit_log%debug(err_msg) 
+  write(err_msg,*) "ufo_gnssro_bndropp2d_tlad_settraj: begin"
+  call oops_log%trace(err_msg)
 
 ! get model state variables from geovals
   call ufo_geovals_get_var(geovals, var_ts,    t)         ! temperature
   call ufo_geovals_get_var(geovals, var_q,     q)         ! specific humidity
   call ufo_geovals_get_var(geovals, var_prs,   prs)       ! pressure
   call ufo_geovals_get_var(geovals, var_z,     gph)       ! geopotential height
-      
-  call self%delete()   
+
+  call self%delete()
 
 ! Keep copy of dimensions
   self%nval = prs%nval
@@ -83,7 +86,7 @@ subroutine ufo_gnssro_bndropp2d_tlad_settraj(self, geovals, obss)
   allocate(self%prs(self%nval,self%nlocs))
   allocate(self%gph(self%nval,self%nlocs))
 
-! allocate  
+! allocate
   self%gph     = gph%vals
   self%t       = t%vals
   self%q       = q%vals
@@ -91,13 +94,13 @@ subroutine ufo_gnssro_bndropp2d_tlad_settraj(self, geovals, obss)
 
   self%ltraj   = .true.
 
-  write(err_msg,*) "TRACE: ufo_gnssro_bndropp2d_tlad_settraj: complete"
-  call fckit_log%debug(err_msg)
-    
+  write(err_msg,*) "ufo_gnssro_bndropp2d_tlad_settraj: complete"
+  call oops_log%trace(err_msg)
+
 end subroutine ufo_gnssro_bndropp2d_tlad_settraj
-    
+
 ! ------------------------------------------------------------------------------
-! ------------------------------------------------------------------------------    
+! ------------------------------------------------------------------------------
 subroutine ufo_gnssro_bndropp2d_simobs_tl(self, geovals, hofx, obss)
 
   implicit none
@@ -107,14 +110,14 @@ subroutine ufo_gnssro_bndropp2d_simobs_tl(self, geovals, hofx, obss)
   type(c_ptr),   value,             intent(in)    :: obss
 
   integer                         :: iobs,nlev, nlocs, nvprof
-    
+
   character(len=*), parameter  :: myname_="ufo_gnssro_bndropp2d_simobs_tl"
   character(max_string)        :: err_msg
-  type(ufo_geoval), pointer    :: t_d, q_d, prs_d 
+  type(ufo_geoval), pointer    :: t_d, q_d, prs_d
 
 ! hack - set local geopotential height to zero for ropp routines
   real(kind_real), allocatable :: gph_d_zero(:)
-  real(kind_real)              :: gph_sfc_d_zero 
+  real(kind_real)              :: gph_sfc_d_zero
   real(kind_real), allocatable :: obsLat(:), obsLon(:), obsImpP(:), obsLocR(:), obsGeoid(:)
 ! hack - set local geopotential height to zero for ropp routines
   integer                       :: n_horiz
@@ -123,14 +126,14 @@ subroutine ufo_gnssro_bndropp2d_simobs_tl(self, geovals, hofx, obss)
   n_horiz = self%roconf%n_horiz
   use_compress = self%roconf%use_compress
 
-  write(err_msg,*) "TRACE: ufo_gnssro_bndropp2d_simobs_tl: begin"
-  call fckit_log%debug(err_msg)
+  write(err_msg,*) "ufo_gnssro_bndropp2d_simobs_tl: begin"
+  call oops_log%trace(err_msg)
 
 ! check if trajectory was set
   if (.not. self%ltraj) then
-     write(err_msg,*) myname_, ' trajectory wasnt set!'
+     write(err_msg,*) myname_, " trajectory wasnt set!"
      call abor1_ftn(err_msg)
-  endif
+  end if
 
 ! get variables from geovals
   call ufo_geovals_get_var(geovals, var_ts,    t_d)         ! temperature
@@ -140,11 +143,11 @@ subroutine ufo_gnssro_bndropp2d_simobs_tl(self, geovals, hofx, obss)
 ! check if the number of geoval profiles is correct
   if (t_d%nprofiles /= size(hofx)*n_horiz .or. q_d%nprofiles /= size(hofx)*n_horiz .or. &
       prs_d%nprofiles /= size(hofx)*n_horiz) then
-     write(err_msg,*) myname_, ' error: npaths inconsistent!'
+     write(err_msg,*) myname_, " error: npaths inconsistent!"
      call abor1_ftn(err_msg)
-  endif
+  end if
 
-  nlev  = self%nval 
+  nlev  = self%nval
   nlocs  = self%nlocs ! number of observations
 
   allocate(gph_d_zero(nlev))
@@ -161,24 +164,24 @@ subroutine ufo_gnssro_bndropp2d_simobs_tl(self, geovals, hofx, obss)
   call obsspace_get_db(obss, "MetaData", "latitude",             obsLat)
   call obsspace_get_db(obss, "MetaData", "impactParameterRO",    obsImpP)
   call obsspace_get_db(obss, "MetaData", "earthRadiusCurvature", obsLocR)
-  call obsspace_get_db(obss, "MetaData", "geoidUndulation",      obsGeoid) 
+  call obsspace_get_db(obss, "MetaData", "geoidUndulation",      obsGeoid)
 
-  nvprof = 1  ! no. of bending angles in profile 
+  nvprof = 1  ! no. of bending angles in profile
 
 ! tidy up - deallocate obsspace structures
-  deallocate(obsLat) 
+  deallocate(obsLat)
   deallocate(obsLon)
   deallocate(obsImpP)
   deallocate(obsLocR)
   deallocate(obsGeoid)
 
-  write(err_msg,*) "TRACE: ufo_gnssro_bndropp2d_simobs_tl: complete"
-  call fckit_log%debug(err_msg)
+  write(err_msg,*) "ufo_gnssro_bndropp2d_simobs_tl: complete"
+  call oops_log%trace(err_msg)
 
   return
-    
+
 end subroutine ufo_gnssro_bndropp2d_simobs_tl
- 
+
 ! ------------------------------------------------------------------------------
 ! ------------------------------------------------------------------------------
 subroutine ufo_gnssro_bndropp2d_simobs_ad(self, geovals, hofx, obss)
@@ -190,7 +193,7 @@ subroutine ufo_gnssro_bndropp2d_simobs_ad(self, geovals, hofx, obss)
   type(c_ptr),  value,              intent(in)    :: obss
   real(c_double)              :: missing
 
-  type(ufo_geoval),     pointer   :: t_d, q_d, prs_d 
+  type(ufo_geoval),     pointer   :: t_d, q_d, prs_d
 ! set local geopotential height to zero for ropp routines
   real(kind_real),      parameter :: gph_sfc_d_zero = 0.0
   real(kind_real),    allocatable :: gph_d_zero(:)
@@ -202,14 +205,14 @@ subroutine ufo_gnssro_bndropp2d_simobs_ad(self, geovals, hofx, obss)
   character(max_string)           :: err_msg
 
 
-  write(err_msg,*) "TRACE: ufo_gnssro_bndropp2d_simobs_ad: begin"
-  call fckit_log%debug(err_msg)
+  write(err_msg,*) "ufo_gnssro_bndropp2d_simobs_ad: begin"
+  call oops_log%trace(err_msg)
 
 ! check if trajectory was set
   if (.not. self%ltraj) then
-     write(err_msg,*) myname_, ' trajectory wasnt set!'
+     write(err_msg,*) myname_, " trajectory wasnt set!"
      call abor1_ftn(err_msg)
-  endif
+  end if
 
   n_horiz = self%roconf%n_horiz
 
@@ -221,11 +224,11 @@ subroutine ufo_gnssro_bndropp2d_simobs_ad(self, geovals, hofx, obss)
 ! check if the number of geoval profiles is correct
   if (t_d%nprofiles /= size(hofx)*n_horiz .or. q_d%nprofiles /= size(hofx)*n_horiz .or. &
       prs_d%nprofiles /= size(hofx)*n_horiz) then
-     write(err_msg,*) myname_, ' error: npaths inconsistent!'
+     write(err_msg,*) myname_, " error: npaths inconsistent!"
      call abor1_ftn(err_msg)
-  endif
+  end if
 
-  nlev  = self%nval 
+  nlev  = self%nval
   nlocs  = self%nlocs
 
   allocate(gph_d_zero(nlev))
@@ -247,20 +250,20 @@ subroutine ufo_gnssro_bndropp2d_simobs_ad(self, geovals, hofx, obss)
   missing = missing_value(missing)
 
 ! tidy up - deallocate obsspace structures
-  deallocate(obsLat) 
+  deallocate(obsLat)
   deallocate(obsLon)
   deallocate(obsImpP)
   deallocate(obsLocR)
   deallocate(obsGeoid)
   deallocate(gph_d_zero)
 
-  write(err_msg,*) "TRACE: ufo_gnssro_bndropp2d_simobs_ad: complete"
-  call fckit_log%debug(err_msg)
+  write(err_msg,*) "ufo_gnssro_bndropp2d_simobs_ad: complete"
+  call oops_log%trace(err_msg)
 
   return
 
 end subroutine ufo_gnssro_bndropp2d_simobs_ad
-    
+
 !-------------------------------------------------------------------------
 !-------------------------------------------------------------------------
 subroutine ufo_gnssro_bndropp2d_tlad_delete(self)
@@ -268,7 +271,7 @@ subroutine ufo_gnssro_bndropp2d_tlad_delete(self)
   implicit none
   class(ufo_gnssro_BndROPP2D_tlad), intent(inout) :: self
   character(len=*), parameter :: myname_="ufo_gnssro_bndropp_tlad_delete"
-      
+
   self%nval = 0
   if (allocated(self%prs)) deallocate(self%prs)
   if (allocated(self%t))   deallocate(self%t)
@@ -276,10 +279,10 @@ subroutine ufo_gnssro_bndropp2d_tlad_delete(self)
   if (allocated(self%gph)) deallocate(self%gph)
 !  if (allocated(self%gph_sfc)) deallocate(self%gph_sfc)
 
-  self%ltraj = .false. 
+  self%ltraj = .false.
 
 end subroutine ufo_gnssro_bndropp2d_tlad_delete
 
 !-------------------------------------------------------------------------
-       
+
 end module ufo_gnssro_bndropp2d_tlad_mod

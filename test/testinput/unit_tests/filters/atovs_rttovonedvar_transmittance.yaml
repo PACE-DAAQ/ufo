@@ -1,6 +1,7 @@
 time window:
   begin: 2021-07-01T09:00:00Z
   end: 2021-07-01T15:00:00Z
+  bound to include: begin  # consistency with test data from "ncdiag"
 
 observations:
 - obs operator:
@@ -117,8 +118,8 @@ observations:
     UseQtSplitRain: false
     UseJforConvergence: true
     JConvergenceOption: 2
-    CostConvergenceFactor: 0.05
-    Max1DVarIterations: 20
+    CostConvergenceFactor: 0.001
+    Max1DVarIterations: 5
     MaxLWPForCloudyCheck: 6.0
     MaxIWPForCloudyCheck: 6.0
     RTTOVMWScattSwitch: true
@@ -143,7 +144,7 @@ observations:
       channels: *humidity_chans
     maxvalue: 0.1
     minvalue: 0.0
-  passedBenchmark: 1546
+  passedBenchmark: 1530
   compareVariables:
     - reference:
         name: TestReferenceOneDVar/transmittance

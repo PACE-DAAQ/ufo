@@ -8,6 +8,7 @@
 #include "oops/util/missingValues.h"
 
 #include "ufo/filters/SuperOb.h"
+#include "ufo/filters/SuperObParameters.h"
 #include "ufo/superob/SuperObBase.h"
 
 namespace ufo {
@@ -16,8 +17,8 @@ namespace ufo {
 
 SuperOb::SuperOb(ioda::ObsSpace & obsdb,
                  const Parameters_ & parameters,
-                 std::shared_ptr<ioda::ObsDataVector<int> > flags,
-                 std::shared_ptr<ioda::ObsDataVector<float> > obserr)
+                 ioda::ObsDataVector<int> & flags,
+                 ioda::ObsDataVector<float> & obserr)
   : FilterBase(obsdb, parameters, flags, obserr),
     options_(parameters) {
   oops::Log::trace() << "SuperOb constructor start" << std::endl;
@@ -31,13 +32,13 @@ SuperOb::SuperOb(ioda::ObsSpace & obsdb,
   // The algorithm must be instantiated here in order to check whether that is the case.
   // Dummy values of the `apply` and `flagged` vectors are used here because they are not
   // available in the filter constructor (and are not needed for the call to `requireHofX`).
-  const SuperObParametersWrapper & params = options_.algorithmParameters.value();
+  const SuperObParametersWrapper & algorithmParams = options_.algorithmParameters.value();
   const std::vector<bool> apply;  // dummy apply vector
   std::vector<std::vector<bool>> flagged;  // dummy flagged vector
 
   std::unique_ptr<SuperObBase> superOb =
-    SuperObFactory::create(params.superObName,
-                           data_, apply, filtervars_, *flags, flagged);
+    SuperObFactory::create(algorithmParams.superObName,
+                           data_, apply, filtervars_, flags, flagged);
 
   if (superOb->requireHofX()) {
     allvars_ += Variables(filtervars_, "HofX");
@@ -56,13 +57,13 @@ void SuperOb::applyFilter(const std::vector<bool> & apply,
   oops::Log::trace() << "SuperOb applyFilter start" << std::endl;
 
   // Run superobbing algorithm.
-  const SuperObParametersWrapper & params = options_.algorithmParameters.value();
+  const SuperObParametersWrapper & algorithmParams = options_.algorithmParameters.value();
 
   std::unique_ptr<SuperObBase> superOb =
-    SuperObFactory::create(params.superObName,
-                           data_, apply, filtervars, *flags_, flagged);
+    SuperObFactory::create(algorithmParams.superObName,
+                           data_, apply, filtervars, flags_, flagged);
 
-  superOb->runAlgorithm();
+  superOb->runAlgorithm(options_);
   oops::Log::trace() << "SuperOb applyFilter complete" << std::endl;
 }
 

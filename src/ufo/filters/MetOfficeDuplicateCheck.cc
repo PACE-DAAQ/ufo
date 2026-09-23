@@ -9,6 +9,8 @@
 
 #include <algorithm>
 
+#include "ioda/ObsSpace.h"
+
 #include "ufo/filters/ObsAccessor.h"
 #include "ufo/utils/metoffice/MetOfficeSort.h"
 #include "ufo/utils/RecursiveSplitter.h"
@@ -18,8 +20,8 @@ namespace ufo {
 MetOfficeDuplicateCheck::MetOfficeDuplicateCheck
 (ioda::ObsSpace & obsdb,
  const Parameters_ &parameters,
- std::shared_ptr<ioda::ObsDataVector<int> > flags,
- std::shared_ptr<ioda::ObsDataVector<float> > obserr)
+ ioda::ObsDataVector<int> &flags,
+ ioda::ObsDataVector<float> &obserr)
   : FilterBase(obsdb, parameters, flags, obserr), options_(parameters) {
   oops::Log::trace() << "MetOfficeDuplicateCheck constructor" << std::endl;
   oops::Log::debug() << "MetOfficeDuplicateCheck: config = " << options_ << std::endl;

@@ -71,6 +71,13 @@ namespace ufo
     /// MWwaterCoeff
     oops::OptionalParameter<std::string> MWwaterCoeff{"MWwaterCoeff", "FASTEM6", this};
     /// Scaling factor
+    /// if true, initialise and read C matrix for reconstructed radiances
+    oops::OptionalParameter<bool> ReconstructedRadianceCorrection
+                                 {"ReconstructedRadianceCorrection", this};
+
+    /// C matrix path
+    oops::OptionalParameter<std::string> CMatrixPath{"CMatrixPath", this};
+
     oops::Parameter <double> modelUnitsCoeff{"model units coeff",
           "Conversion between model units", 1.0, this};
   };  // end class ObsOptionsParameters
@@ -89,6 +96,8 @@ namespace ufo
     //// use qc flags
     oops::Parameter<bool> UseQCFlagsToSkipHofX{"UseQCFlagsToSkipHofX",
        "do not calculate hofx for values not passing qc (true or false)", false, this};
+    //// range of wavelengths (m^-1) to zero-out jacobian of ozone
+    oops::OptionalParameter<std::vector<float>> zeroO3JacRange{"zeroO3JacRange", this};
   };  // end class CRTMLinearObsOperatorParameters
 
 
@@ -106,7 +115,7 @@ namespace ufo
     oops::Parameter<std::string> CO2AbsorberMethod{"CO2AbsorberMethod",
           "Background", this};
     oops::Parameter<float> CO2gvConvertUnit{"CO2gvConvertUnit",
-          "mutiplicative factor to convert unit of CO2 GeoVaL", -1.0, this};
+          "multiplicative factor to convert unit of CO2 GeoVaL", -1.0, this};
     /// CO2 value when EternalConstant is selected
     oops::Parameter<float> CO2ppmvValue{"CO2ppmvValue",
           407.0, this};
