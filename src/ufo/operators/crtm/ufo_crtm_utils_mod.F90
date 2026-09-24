@@ -1719,7 +1719,7 @@ end function uv_to_wdir
     ELSE IF (aerosol_option == "aerosols_gocart_geos") THEN
        ALLOCATE(var_aerosols(n_aerosols_gocart_geos))
        var_aerosols=var_aerosols_gocart_geos
-    ELSEIF (cmp_strings(aerosol_option,"aerosols_gocart2g_mpas")) THEN
+    ELSEIF (aerosol_option == "aerosols_gocart2g_mpas") THEN
        ALLOCATE(var_aerosols(n_aerosols_gocart2g_mpas))
        var_aerosols=var_aerosols_gocart2g_mpas
     ELSE
