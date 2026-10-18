@@ -16,6 +16,7 @@ module ufo_insitupm_tlad_mod
  use PM_gocart_mod
  use oops_variables_mod
  use obs_variables_mod
+ use missing_values_mod
 
  implicit none
  private
@@ -440,14 +441,23 @@ real(c_double),           intent(in)    :: hofx(:,:)
 
 integer :: iq
 real(kind_real), allocatable :: qm_ad(:,:,:)
+real(kind_real), allocatable :: hofx_ad(:,:)
+real(c_double) :: missing
 type(ufo_geoval), pointer :: aer_profile
 character(len=MAXVARLEN) :: geovar
 
  allocate(qm_ad(self%ntracers, self%nlayers, self%nlocs))
  qm_ad = 0.0_kind_real
 
+ ! QC-rejected obs arrive as the missing value; they must not enter the adjoint
+ missing = missing_value(missing)
+ allocate(hofx_ad(size(hofx, 1), size(hofx, 2)))
+ hofx_ad = hofx
+ where (hofx_ad == missing) hofx_ad = 0.0_kind_real
+
  call get_PM_gocart_ad(self%nlayers, self%nvars, self%nlocs, self%ntracers, &
-                       self%tracer_weights, self%ksfc, self%rho, hofx, qm_ad)
+                       self%tracer_weights, self%ksfc, self%rho, hofx_ad, qm_ad)
+ deallocate(hofx_ad)
 
  do iq = self%ntracers, 1, -1
    geovar = self%geovars%variable(iq)
