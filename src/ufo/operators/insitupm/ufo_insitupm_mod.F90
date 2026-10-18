@@ -10,6 +10,7 @@ module ufo_insitupm_mod
  use, intrinsic :: iso_c_binding
  use kinds
  use PM_cmaq_mod
+ use PM_gocart_mod
  use oops_variables_mod
  use obs_variables_mod
  use ufo_vars_mod
@@ -27,6 +28,7 @@ module ufo_insitupm_mod
    character(len=maxvarlen)     :: model, v_coord
    logical                      :: scalefactor
    integer, allocatable :: tracer_modes_cmaq(:)
+   real(kind_real), allocatable :: tracer_weights(:)   ! GOCART: bin fraction below the PM cut times mass factor
  contains
    procedure :: setup  => ufo_insitupm_setup
    procedure :: simobs => ufo_insitupm_simobs
@@ -37,6 +39,7 @@ module ufo_insitupm_mod
  character(len=maxvarlen), dimension(2), parameter :: varindefault = [var_prs, var_ts]
  character(len=maxvarlen), dimension(3), parameter :: varincmaq = [var_pm25at, var_pm25ac, var_pm25co]
  character(len=maxvarlen), dimension(2), parameter :: varvertical = [var_geomz, var_sfc_geomz]
+ character(len=maxvarlen), dimension(2), parameter :: varingocart = [var_prs, var_airdens]
 contains
 
 ! ------------------------------------------------------------------------------
@@ -66,6 +69,21 @@ character(kind=c_char,len=:), allocatable :: model_name, coord_name
   ! Size of variables (number of obs type (= 1 for this case))
   nvars = self%obsvars%nvars()
 
+  call f_conf%get_or_die("model", model_name)                  ! model name
+  self%model = model_name
+
+  if(self%model == "GOCART") then
+    ! Lowest-model-level operator: needs air pressure (to find the lowest level) and moist air density.
+    call f_conf%get_or_die("tracer_weights", self%tracer_weights)
+    if(size(self%tracer_weights) /= self%ntracers) then
+      write(err_msg, *) "tracer_weights must have one entry per tracer_geovals"
+      call abor1_ftn(err_msg)
+    end if
+    call self%geovars%push_back(varingocart)
+    deallocate(tracer_variables, model_name)
+    return
+  end if
+
   call self%geovars%push_back(varindefault)                    ! pressure and ts (needed for unit conversion to ug/m3)
 
   call f_conf%get_or_die("vertical_coordinate", coord_name)    ! vertical coordinate for interpolation
@@ -75,12 +93,8 @@ character(kind=c_char,len=:), allocatable :: model_name, coord_name
   call self%geovars%push_back(varvertical)                     ! height and surface height
   end if
 
-  call f_conf%get_or_die("model", model_name)                  ! model name
-  self%model = model_name
-
-  ! To be edited (for non-CMAQ models)
   if(self%model /= "CMAQ") then
-    write(err_msg, *) "not CMAQ, not supported by this operator yet"
+    write(err_msg, *) "model must be CMAQ or GOCART"
     call abor1_ftn(err_msg)
   end if
 
@@ -118,6 +132,7 @@ implicit none
 type(ufo_insitupm), intent(inout) :: self
 
 if (allocated(self%tracer_modes_cmaq)) deallocate(self%tracer_modes_cmaq)
+if (allocated(self%tracer_weights)) deallocate(self%tracer_weights)
 
 end subroutine destructor
 
@@ -164,6 +179,11 @@ character(len=MAXVARLEN) :: geovar
 character(len=MAXVARLEN) :: err_msg
 character(len=MAXVARLEN), dimension(:), allocatable:: tracer_name
 
+
+  if(self%model == "GOCART") then
+    call ufo_insitupm_simobs_gocart(self, geovals, nvars, nlocs, hofx)
+    return
+  end if
 
   ! Get prs and ts from model interp at obs loc (from geovals)
   call ufo_geovals_get_var(geovals, var_prs, prs_profile)
@@ -272,6 +292,37 @@ character(len=MAXVARLEN), dimension(:), allocatable:: tracer_name
 
 end subroutine ufo_insitupm_simobs
 
+
+! ------------------------------------------------------------------------------
+!> GOCART: PM at the lowest model level from bin-wise mass mixing ratios (kg/kg) and moist air density (kg/m3)
+subroutine ufo_insitupm_simobs_gocart(self, geovals, nvars, nlocs, hofx)
+use ufo_geovals_mod
+implicit none
+class(ufo_insitupm), intent(in)   :: self
+integer, intent(in)               :: nvars, nlocs
+type(ufo_geovals),  intent(in)    :: geovals
+real(c_double),     intent(inout) :: hofx(nvars, nlocs)
+type(ufo_geoval), pointer :: aer_profile
+type(ufo_geoval), pointer :: prs_profile
+type(ufo_geoval), pointer :: rho_profile
+real(kind_real), allocatable :: qm(:,:,:)
+integer, allocatable :: ksfc(:)
+integer :: nlayers, iq
+character(len=MAXVARLEN) :: geovar
+  call ufo_geovals_get_var(geovals, var_prs, prs_profile)
+  nlayers = prs_profile%nval
+  call ufo_geovals_get_var(geovals, var_airdens, rho_profile)
+  allocate(ksfc(nlocs), qm(self%ntracers, nlayers, nlocs))
+  call find_lowest_level(nlayers, nlocs, prs_profile%vals, ksfc)
+  do iq = 1, self%ntracers
+     geovar = self%geovars%variable(iq)
+     call ufo_geovals_get_var(geovals, geovar, aer_profile)
+     qm(iq,:,:) = aer_profile%vals
+  end do
+  call get_PM_gocart(nlayers, nvars, nlocs, self%ntracers, self%tracer_weights, ksfc, &
+                     rho_profile%vals, qm, hofx)
+  deallocate(ksfc, qm)
+end subroutine ufo_insitupm_simobs_gocart
 
 ! ------------------------------------------------------------------------------
 
