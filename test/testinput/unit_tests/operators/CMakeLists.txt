@@ -105,6 +105,15 @@ ufo_add_test( NAME    linopr_aod_metoffice
               LABELS  operators
               WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}/../../../ )
 #
+ufo_add_test( NAME    linopr_aod_ukca
+              ECBUILD
+              COMMAND ${CMAKE_BINARY_DIR}/bin/test_ObsOperatorTLAD.x
+              ARGS    "${CMAKE_CURRENT_SOURCE_DIR}/aod_ukca.yaml"
+              MPI     1
+              LIBS    ufo
+              LABELS  operators
+              WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}/../../../ )
+#
 ufo_add_test( NAME    opr_background_error_identity
               ECBUILD
               COMMAND ${CMAKE_BINARY_DIR}/bin/test_ObsOperator.x
@@ -917,15 +926,6 @@ ufo_add_test( NAME    nearest_neighbor_soil
               LABELS  operators
               WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}/../../../ )
 #
-ufo_add_test( NAME    opr_radialvelocity
-              ECBUILD
-              COMMAND ${CMAKE_BINARY_DIR}/bin/test_ObsOperator.x
-              ARGS    "${CMAKE_CURRENT_SOURCE_DIR}/radialvelocity.yaml"
-              MPI     1
-              LIBS    ufo
-              LABELS  operators
-              WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}/../../../ )
-#
 ufo_add_test( NAME    opr_reflectivity
               ECBUILD
               COMMAND ${CMAKE_BINARY_DIR}/bin/test_ObsOperator.x
@@ -1200,10 +1200,28 @@ ufo_add_test( NAME    opr_sfccorrected_pressure
               LABELS  operators
               WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}/../../../ )
 #
+ufo_add_test( NAME    opr_sfccorrected_pressure_gsl_humidity
+              ECBUILD
+              COMMAND ${CMAKE_BINARY_DIR}/bin/test_ObsOperator.x
+              ARGS    "${CMAKE_CURRENT_SOURCE_DIR}/sfccorrected_pressure_gsl_humidity.yaml"
+              MPI     1
+              LIBS    ufo
+              LABELS  operators
+              WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}/../../../ )
+#
 ufo_add_test( NAME    opr_sfccorrected_temperature
               ECBUILD
               COMMAND ${CMAKE_BINARY_DIR}/bin/test_ObsOperator.x
               ARGS    "${CMAKE_CURRENT_SOURCE_DIR}/sfccorrected_temperature.yaml"
+              MPI     1
+              LIBS    ufo
+              LABELS  operators
+              WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}/../../../ )
+#
+ufo_add_test( NAME    linopr_sfccorrected_temperature
+              ECBUILD
+              COMMAND ${CMAKE_BINARY_DIR}/bin/test_ObsOperatorTLAD.x
+              ARGS    "${CMAKE_CURRENT_SOURCE_DIR}/sfccorrected_temperature_tlad.yaml"
               MPI     1
               LIBS    ufo
               LABELS  operators
@@ -1525,16 +1543,14 @@ if( crtm_FOUND AND crtm_VERSION VERSION_GREATER_EQUAL 3.0.0 )
               LABELS  crtm operators
               WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}/../../../ )
 #
-# TODO: This unit test for extinction coefficient profile is commented out now.
-# It will be activated when corresponding CRTM coefficient files are available
-#    ufo_add_test( NAME    opr_extcoeffprof_crtm
-#              ECBUILD
-#              COMMAND ${CMAKE_BINARY_DIR}/bin/test_ObsOperator.x
-#              ARGS    "${CMAKE_CURRENT_SOURCE_DIR}/extcoeffprof_crtm.yaml"
-#              MPI     1
-#              LIBS    ufo
-#              LABELS  crtm operators
-#              WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}/../../../ )
+    ufo_add_test( NAME    opr_extcoeffprof_crtm
+              ECBUILD
+              COMMAND ${CMAKE_BINARY_DIR}/bin/test_ObsOperator.x
+              ARGS    "${CMAKE_CURRENT_SOURCE_DIR}/extcoeffprof_crtm.yaml"
+              MPI     1
+              LIBS    ufo
+              LABELS  crtm operators
+              WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}/../../../ )
 endif( crtm_FOUND AND crtm_VERSION VERSION_GREATER_EQUAL 3.0.0 )
 #
     ufo_add_test( NAME    opr_amsua_crtm

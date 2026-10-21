@@ -27,12 +27,14 @@ private
 
 public crtm_comm_stat_check
 public crtm_conf
+public nullify_jac_channels_type
 public crtm_conf_setup
 public crtm_conf_delete
 public get_var_name
 public Load_Atm_Data
 public Load_Sfc_Data
 public Load_Geom_Data
+public crtm_pressure_is_monotonic
 public ufo_crtm_skip_profiles
 
 PUBLIC Load_Aerosol_Data
@@ -62,6 +64,11 @@ REAL(kind_real), PARAMETER :: &
 integer, parameter, public :: max_string=800
 real(kind_real), parameter  :: threshold_reflectivity = 100.0
 
+!Type to hold the list of channels to zero for one nullify jacobian params entry
+type nullify_jac_channels_type
+ integer, allocatable :: channels(:)
+end type nullify_jac_channels_type
+
 !Type for general config
 type crtm_conf
  integer :: n_Sensors
@@ -69,7 +76,6 @@ type crtm_conf
  integer :: n_Clouds
  integer :: n_Aerosols
  integer :: n_Surfaces
- integer :: n_zeroO3JacRange
  character(len=MAXVARLEN), allocatable :: Absorbers(:)
  integer, allocatable :: Absorber_Id(:)
  integer, allocatable :: Absorber_Units(:)
@@ -98,7 +104,9 @@ type crtm_conf
  real(kind_real) :: co2_rescale_to_ppmv = co2_rescale_to_ppmv
  real(kind_real) :: co2_ppmv_value = co2_ppmv_value
  real(kind_real) :: midpoint_julday = midpoint_julday
- real(kind_real) :: zeroO3JacRange(2)
+ ! nullifyJacVars(i) is zeroed for channels in nullifyJacChannels(i)%channels
+ character(len=MAXVARLEN), allocatable :: nullifyJacVars(:)
+ type(nullify_jac_channels_type), allocatable :: nullifyJacChannels(:)
  logical :: Cloud_Seeding = .false.
  logical :: cal_cloud_frac_in_fov = .false.
  logical :: cal_cloud_reff_in_fov  = .false.
@@ -249,6 +257,26 @@ contains
 
 ! ------------------------------------------------------------------------------
 
+logical function crtm_pressure_is_monotonic(atm)
+
+implicit none
+
+type(CRTM_Atmosphere_type), intent(in) :: atm
+
+integer :: jlevel
+
+ crtm_pressure_is_monotonic = .true.
+ do jlevel = atm%n_layers, 1, -1
+   if (atm%level_pressure(jlevel) <= atm%level_pressure(jlevel-1)) then
+     crtm_pressure_is_monotonic = .false.
+     return
+   end if
+ end do
+
+end function crtm_pressure_is_monotonic
+
+! ------------------------------------------------------------------------------
+
 subroutine crtm_conf_setup(conf, f_confOpts, f_confOper, midPointJulday, comm)
 
 implicit none
@@ -269,7 +297,8 @@ integer :: jspec, ivar
 character(len=max_string) :: message
 character(len=:), allocatable :: str
 character(len=:), allocatable :: str_array(:)
-real(kind_real), allocatable :: flt_array(:)
+integer, allocatable :: int_array(:)
+type(fckit_configuration), allocatable :: nullifyJacParams_confs(:)
 
 character(len=maxvarlen), allocatable :: var_aerosols(:)
 logical, save :: message_flag = .true.
@@ -523,24 +552,24 @@ character(max_string) :: cloud_reff_method
    call fckit_exception % throw(message)
  end if
 
- ! Range of wavelength to zero out O3 Jacobians
- ! ---------------------------------------------
- conf%n_zeroO3JacRange = 0
- conf%zeroO3JacRange(1) = 0.0
- conf%zeroO3JacRange(2) = 1.0e9
- if (f_confOper%has("zeroO3JacRange")) then
-   conf%n_zeroO3JacRange = conf%n_zeroO3JacRange + f_confOper%get_size("zeroO3JacRange")
+ ! Per-variable list of channels whose Jacobian is zeroed
+ ! ---------------------------------------------------------------------------------------
+ if (f_confOper%has("nullify jacobian params")) then
+   call f_confOper%get_or_die("nullify jacobian params", nullifyJacParams_confs)
 
-   if (conf%n_zeroO3JacRange /= size(conf%zeroO3JacRange) ) then
-     write(message,*) "crtm_conf_setup error: invalid O3 Jac range "
-     call fckit_exception % throw(message)
-   end if
+   allocate(conf%nullifyJacVars(size(nullifyJacParams_confs)))
+   allocate(conf%nullifyJacChannels(size(nullifyJacParams_confs)))
 
-   call f_confOper%get_or_die("zeroO3JacRange",flt_array)
-   conf%zeroO3JacRange(1:conf%n_zeroO3JacRange) = flt_array
-   write(message,*) trim(ROUTINE_NAME),&
-        " Zeroing-out Jacobian wrt ozone for wavelength < ", conf%zeroO3JacRange(1),&
-        " and > ", conf%zeroO3JacRange(2)
+   do jspec = 1, size(nullifyJacParams_confs)
+     call nullifyJacParams_confs(jspec)%get_or_die("variable", str)
+     conf%nullifyJacVars(jspec) = str
+
+     call nullifyJacParams_confs(jspec)%get_or_die("channels", int_array)
+     conf%nullifyJacChannels(jspec)%channels = int_array
+   end do
+ else
+   allocate(conf%nullifyJacVars(0))
+   allocate(conf%nullifyJacChannels(0))
  end if
 
  ! observation midpoint Julian day in proleptic Julian calendar (from 01Jan 4713BC)
@@ -803,7 +832,7 @@ logical, intent(in):: Is_Active_Sensor
 logical, intent(in):: Is_Vis_or_UV
 type(CRTM_Options_type),    intent(inout) :: Options(:)
 
-integer :: jprofile, jchannel, jlevel
+integer :: jprofile, jchannel
 character(len=MAXVARLEN) :: varname
 character(len=64) :: obsGroupName
 character(len=max_string) :: message
@@ -864,12 +893,10 @@ end do
    Options(jprofile)%Skip_Profile = all(ObsVal(jprofile,:) == missing_d)
 
    ! check for pressure monotonicity
-   do jlevel = atm(jprofile)%n_layers, 1, -1
-     if ( atm(jprofile)%level_pressure(jlevel) <= atm(jprofile)%level_pressure(jlevel-1) ) then
-       Options(jprofile)%Skip_Profile = .TRUE.
-       cycle profile_loop
-     end if
-   end do
+   if (.not. crtm_pressure_is_monotonic(atm(jprofile))) then
+     Options(jprofile)%Skip_Profile = .TRUE.
+     cycle profile_loop
+   end if
 
    ! Sum of the coverage types can be found less than 1 near the boundary of regional configurations. Skip those data points for CRTM.
    if ( abs(sfc(jprofile)%Water_Coverage+sfc(jprofile)%Land_Coverage+sfc(jprofile)%Snow_Coverage+sfc(jprofile)%Ice_Coverage - one ) > 1.0e-6_kind_real) then
@@ -915,7 +942,7 @@ end subroutine ufo_crtm_skip_profiles
 ! ------------------------------------------------------------------------------
 
 SUBROUTINE Load_Atm_Data(n_Profiles, n_Layers, geovals, atm, conf, Is_Active_Sensor, &
-                zeroCloudInCRTM)
+                zeroCloudInCRTM, row_indices)
 
 use ufo_constants_mod, only: zero
 implicit none
@@ -925,10 +952,16 @@ type(ufo_geovals), intent(in) :: geovals
 type(CRTM_Atmosphere_type), intent(inout) :: atm(:)
 logical, intent(in), optional :: Is_Active_Sensor
 integer, intent(in), optional :: zeroCloudInCRTM(:)
+! Optional map from profile index (1..n_Profiles) to the geovals column that
+! profile's data actually lives in. Defaults to the identity (column k1 for
+! profile k1) when absent, preserving the existing contiguous-range behavior
+! for every caller that doesn't pass it.
+integer, intent(in), optional :: row_indices(:)
 type(crtm_conf), intent(in) :: conf
 
 ! Local variables
 integer :: k1, jspec, jlevel
+integer, allocatable :: src(:)
 type(ufo_geoval), pointer :: geoval
 character(max_string) :: err_msg
 character(*), parameter :: routine_name = "Load_Atm_Data"
@@ -951,6 +984,13 @@ integer  :: id_cld(1)
      IsActiveSensor = .FALSE.
   end if
 
+  allocate(src(n_Profiles))
+  if (present(row_indices)) then
+    src = row_indices
+  else
+    src = [(k1, k1=1,n_Profiles)]
+  end if
+
   ! Populate the atmosphere structures for CRTM
   ! -------------------------------------------
 
@@ -962,17 +1002,17 @@ integer  :: id_cld(1)
   end if
 
   do k1 = 1, n_Profiles
-    atm(k1)%Temperature(1:n_Layers) = geoval%vals(:, k1)
+    atm(k1)%Temperature(1:n_Layers) = geoval%vals(:, src(k1))
   end do
 
   call ufo_geovals_get_var(geovals, var_prs, geoval)
   do k1 = 1, n_Profiles
-    atm(k1)%Pressure(1:n_Layers) = geoval%vals(:, k1) * 0.01  ! to hPa
+    atm(k1)%Pressure(1:n_Layers) = geoval%vals(:, src(k1)) * 0.01  ! to hPa
   end do
 
   call ufo_geovals_get_var(geovals, var_prsi, geoval)
   do k1 = 1, n_Profiles
-    atm(k1)%Level_Pressure(:) = geoval%vals(:, k1) * 0.01     ! to hPa
+    atm(k1)%Level_Pressure(:) = geoval%vals(:, src(k1)) * 0.01     ! to hPa
     atm(k1)%Climatology = US_STANDARD_ATMOSPHERE
   end do
 
@@ -980,9 +1020,8 @@ integer  :: id_cld(1)
       (conf%Aerosol_Model == "NAAPS")) then
     call ufo_geovals_get_var(geovals, var_rh, geoval)
     do k1 = 1, n_Profiles
-      WHERE (geoval%vals(:, k1) > 1.0_kind_real) geoval%vals(:, k1) = 1.0_kind_real
-      WHERE (geoval%vals(:, k1) < 0.0_kind_real) geoval%vals(:, k1) = 0.0_kind_real
-      atm(k1)%Relative_Humidity(1:n_Layers) = geoval%vals(:, k1)        ! fraction
+      WHERE (geoval%vals(:, src(k1)) > 1.0_kind_real) geoval%vals(:, src(k1)) = 1.0_kind_real
+      atm(k1)%Relative_Humidity(:) = geoval%vals(:, src(k1))        ! fraction
       atm(k1)%Climatology = US_STANDARD_ATMOSPHERE
     end do
   end if
@@ -1011,7 +1050,7 @@ integer  :: id_cld(1)
           ! this should automatically be filled by Model2GeoVals
           call ufo_geovals_get_var(geovals, conf%Absorbers(jspec), geoval)
           do k1 = 1, n_Profiles
-            atm(k1)%Absorber(1:n_Layers, jspec) = co2_rescale_to_ppmv * geoval%vals(:, k1)
+            atm(k1)%Absorber(1:n_Layers, jspec) = co2_rescale_to_ppmv * geoval%vals(:, src(k1))
           end do
         case default
           call fckit_exception % throw("CO2 provided to CRTM is incorrectly set")
@@ -1024,7 +1063,7 @@ integer  :: id_cld(1)
       end if
       call ufo_geovals_get_var(geovals, conf%Absorbers(jspec), geoval)
       do k1 = 1, n_Profiles
-        atm(k1)%Absorber(1:n_Layers, jspec) = geoval_unit_rescale * geoval%vals(:, k1)
+        atm(k1)%Absorber(1:n_Layers, jspec) = geoval_unit_rescale * geoval%vals(:, src(k1))
       end do
     end if
     do k1 = 1, n_Profiles
@@ -1037,8 +1076,8 @@ integer  :: id_cld(1)
     ! cloud species content
     CALL ufo_geovals_get_var(geovals, conf%Clouds(jspec,1), geoval)
     do k1 = 1, n_Profiles
-      where( geoval%vals(:, k1) < 0.0_kind_real ) geoval%vals(:, k1) = 0.0_kind_real
-      atm(k1)%Cloud(jspec)%Water_Content = geoval%vals(:, k1)
+      where( geoval%vals(:, src(k1)) < 0.0_kind_real ) geoval%vals(:, src(k1)) = 0.0_kind_real
+      atm(k1)%Cloud(jspec)%Water_Content = geoval%vals(:, src(k1))
       atm(k1)%Cloud(jspec)%Type = conf%Cloud_Id(jspec)
     end do
 
@@ -1046,8 +1085,8 @@ integer  :: id_cld(1)
     if (.not. conf%cal_cloud_reff_in_fov) then
       CALL ufo_geovals_get_var(geovals, conf%Clouds(jspec,2), geoval)
       do k1 = 1, n_Profiles
-        where( geoval%vals(:, k1) < 0.0_kind_real ) geoval%vals(:, k1) = 0.0_kind_real
-        atm(k1)%Cloud(jspec)%Effective_Radius = geoval%vals(:, k1)
+        where( geoval%vals(:, src(k1)) < 0.0_kind_real ) geoval%vals(:, src(k1)) = 0.0_kind_real
+        atm(k1)%Cloud(jspec)%Effective_Radius = geoval%vals(:, src(k1))
       end do
     end if
   end do
@@ -1065,9 +1104,9 @@ integer  :: id_cld(1)
       if ( ufo_vars_getindex(geovals%variables, var_cldfrac) > 0 ) then
         CALL ufo_geovals_get_var(geovals, var_cldfrac, geoval)
         do k1 = 1, n_Profiles
-          where( geoval%vals(:, k1) < 0.0_kind_real ) geoval%vals(:, k1) = 0.0_kind_real
-          where( geoval%vals(:, k1) > 1.0_kind_real ) geoval%vals(:, k1) = 1.0_kind_real
-          atm(k1)%Cloud_Fraction(:) =  geoval%vals(:, k1)
+          where( geoval%vals(:, src(k1)) < 0.0_kind_real ) geoval%vals(:, src(k1)) = 0.0_kind_real
+          where( geoval%vals(:, src(k1)) > 1.0_kind_real ) geoval%vals(:, src(k1)) = 1.0_kind_real
+          atm(k1)%Cloud_Fraction(:) =  geoval%vals(:, src(k1))
         end do
       end if
     end if
@@ -1078,14 +1117,14 @@ integer  :: id_cld(1)
     CALL ufo_geovals_get_var(geovals, var_qsat, geoval)
     allocate(geoval_qsat(n_Layers,n_profiles))
     do k1 = 1, n_Profiles
-      geoval_qsat(:, k1)=geoval%vals(:, k1)
+      geoval_qsat(:, k1)=geoval%vals(:, src(k1))
     end do
 
     ! get "moist_air_density"
     call ufo_geovals_get_var(geovals, var_airdens, geoval)
     allocate(airdens(n_Layers,n_profiles))
     do k1 = 1, n_Profiles
-      airdens(:, k1)=geoval%vals(:, k1)
+      airdens(:, k1)=geoval%vals(:, src(k1))
     end do
 
     ! get specific_humidity and relative_humidity which can be
@@ -1094,7 +1133,7 @@ integer  :: id_cld(1)
     allocate(specific_humidity(n_Layers,n_profiles))
     allocate(relative_humidity(n_Layers,n_profiles))
     do k1 = 1, n_Profiles
-      specific_humidity(:, k1)=geoval%vals(:, k1)
+      specific_humidity(:, k1)=geoval%vals(:, src(k1))
     end do
     where(specific_humidity < qsmall) specific_humidity=qsmall
     relative_humidity=specific_humidity/geoval_qsat
@@ -1103,7 +1142,7 @@ integer  :: id_cld(1)
     call ufo_geovals_get_var(geovals, var_ni, geoval)
     allocate(cloud_ice_number(n_Layers,n_profiles))
     do k1 = 1, n_Profiles
-      cloud_ice_number(:, k1)=geoval%vals(:, k1)
+      cloud_ice_number(:, k1)=geoval%vals(:, src(k1))
     end do
     where(cloud_ice_number < 0.0_kind_real) cloud_ice_number = 0.0_kind_real
 
@@ -1111,7 +1150,7 @@ integer  :: id_cld(1)
     call ufo_geovals_get_var(geovals, var_nr, geoval)
     allocate(rain_number(n_Layers,n_profiles))
     do k1 = 1, n_Profiles
-      rain_number(:, k1)=geoval%vals(:, k1)
+      rain_number(:, k1)=geoval%vals(:, src(k1))
     end do
     where(rain_number < 0.0_kind_real) rain_number = 0.0_kind_real
 
@@ -1124,7 +1163,7 @@ integer  :: id_cld(1)
       if (id_cld(1) > 0) then
         call ufo_geovals_get_var(geovals, trim(thompson_Cloud_var(id_cld(1))), geoval)
         profile_loop_reff: do k1 = 1, n_Profiles
-          clouds_mixingratio(:,k1) = geoval%vals(:, k1)
+          clouds_mixingratio(:,k1) = geoval%vals(:, src(k1))
           where(clouds_mixingratio(:,k1) < 0.0_kind_real) clouds_mixingratio(:,k1) = 0.0_kind_real
           if (conf%cal_cloud_frac_in_fov) then
             cloudmxr_sum(:,k1) = cloudmxr_sum(:,k1) +  clouds_mixingratio(:, k1)
@@ -1253,6 +1292,7 @@ integer  :: id_cld(1)
   if (allocated(cloudmxr_sum)) deallocate(cloudmxr_sum)
   if (allocated(clouds_mixingratio)) deallocate(clouds_mixingratio)
   if (allocated(pressure_KPa)) deallocate(pressure_KPa)
+  deallocate(src)
 end subroutine Load_Atm_Data
 
 ! ------------------------------------------------------------------------------
@@ -1731,7 +1771,7 @@ end function uv_to_wdir
    END SUBROUTINE assign_aerosol_names
 
    SUBROUTINE load_aerosol_data(n_profiles, n_layers, geovals,&
-     &conf, var_aerosols, aerosol_model, atm)
+     &conf, var_aerosols, aerosol_model, atm, row_indices)
     USE CRTM_aerosolcoeff, ONLY: aeroc
 
     TYPE(crtm_conf), INTENT(in)    :: conf
@@ -1740,6 +1780,11 @@ end function uv_to_wdir
     TYPE(ufo_geoval), POINTER :: geoval
 
     INTEGER, INTENT(in) :: n_profiles, n_layers
+    ! Optional map from profile index (1..n_profiles) to the geovals column
+    ! that profile's data actually lives in. Defaults to the identity when
+    ! absent, preserving existing behavior for every caller that omits it.
+    INTEGER, INTENT(in), OPTIONAL :: row_indices(:)
+    INTEGER, ALLOCATABLE :: src(:)
     INTEGER :: n_aerosols, i, k, m
 
     REAL(kind_real), DIMENSION(5), PARAMETER  :: dust_radii=[&
@@ -1755,9 +1800,18 @@ end function uv_to_wdir
 
     character(len=20) :: fname
 
+    ALLOCATE(src(n_profiles))
+    IF (PRESENT(row_indices)) THEN
+      src = row_indices
+    ELSE
+      src = [(m, m=1,n_profiles)]
+    END IF
+
     varname = var_rh
     CALL ufo_geovals_get_var(geovals, varname, geoval)
-    rh(1:n_layers,1:n_profiles)=geoval%vals(1:n_layers,1:n_profiles)
+    DO m = 1, n_profiles
+      rh(1:n_layers,m) = geoval%vals(1:n_layers, src(m))
+    END DO
     WHERE (rh > 1.0_kind_real) rh=1.0_kind_real
 
     n_aerosols=SIZE(var_aerosols)
@@ -1772,7 +1826,7 @@ end function uv_to_wdir
           CALL ufo_geovals_get_var(geovals,varname, geoval)
 
           atm(m)%aerosol(i)%Concentration(1:n_layers)=&
-               &MAX(geoval%vals(:,m)*conf%unit_coef*layer_factors, &
+               &MAX(geoval%vals(:,src(m))*conf%unit_coef*layer_factors, &
                &aerosol_concentration_minvalue_layer)
 
           IF (aerosol_model == "CRTM") THEN
@@ -2118,6 +2172,7 @@ end function uv_to_wdir
        END DO
      END DO
 
+     DEALLOCATE(src)
    END SUBROUTINE load_aerosol_data
 
    SUBROUTINE calculate_aero_layer_factor_atm_profile(atm, layer_factors)
