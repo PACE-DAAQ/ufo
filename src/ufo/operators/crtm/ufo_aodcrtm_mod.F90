@@ -163,6 +163,8 @@ type(CRTM_RTSolution_type), allocatable :: rts_K(:,:)
             chinfo, &
             File_Path           = trim(self%conf%COEFFICIENT_PATH), &
             NC_File_Path        = trim(self%conf%NC_COEFFICIENT_PATH), &
+            SpcCoeff_Format     = trim(self%conf%SpcCoeff_Format), &
+            TauCoeff_Format     = trim(self%conf%TauCoeff_Format), &
             Aerosol_Model       = trim(def_aero_mod), &
             AerosolCoeff_Format = trim(self%conf%AerosolCoeff_Format), &
             AerosolCoeff_File   = trim(self%conf%AerosolCoeff_File), &

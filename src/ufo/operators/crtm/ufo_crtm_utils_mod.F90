@@ -631,6 +631,19 @@ character(max_string) :: cloud_reff_method
     conf%TauCoeff_Format = str
  end if
 
+ ! Spc and Tau coefficient file format
+ conf%SpcCoeff_Format = "Binary"
+ if (f_confOpts%has("SpcCoeff_Format")) then
+    call f_confOpts%get_or_die("SpcCoeff_Format",str)
+    conf%SpcCoeff_Format = str
+ end if
+
+ conf%TauCoeff_Format = "Binary"
+ if (f_confOpts%has("TauCoeff_Format")) then
+    call f_confOpts%get_or_die("TauCoeff_Format",str)
+    conf%TauCoeff_Format = str
+ end if
+
  ! Cloud coefficient file, model, and format
  conf%Cloud_Model = "CRTM"
  if (f_confOpts%has("Cloud_Model")) then
@@ -1746,6 +1759,9 @@ end function uv_to_wdir
     ELSE IF (aerosol_option == "aerosols_gocart_geos") THEN
        ALLOCATE(var_aerosols(n_aerosols_gocart_geos))
        var_aerosols=var_aerosols_gocart_geos
+    ELSEIF (cmp_strings(aerosol_option,"aerosols_gocart2g_mpas")) THEN
+       ALLOCATE(var_aerosols(n_aerosols_gocart2g_mpas))
+       var_aerosols=var_aerosols_gocart2g_mpas
     ELSE
        WRITE(err_msg,*) "assign_aerosol_names: aerosol_option not implemented"&
        &//TRIM(aerosol_option)
@@ -1923,7 +1939,7 @@ end function uv_to_wdir
                atm(m)%aerosol(i)%TYPE  = 5 ! dust bin 5
 
             ! Sea salt
-             CASE (var_ss001)
+            CASE (var_ss001)
                atm(m)%aerosol(i)%TYPE  = 6 ! sea salt bin 1
             CASE (var_ss002)
                atm(m)%aerosol(i)%TYPE  = 7 ! sea salt bin 2
