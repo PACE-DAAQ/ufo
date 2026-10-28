@@ -15,6 +15,7 @@ set ( insitupm_files
     ObsInsituPMTLAD.interface.h
     ufo_insitupm_mod.F90
     PM_cmaq_mod.F90
+    PM_gocart_mod.F90
     aero_kinds_mod.F90
     ufo_insitupm_tlad_mod.F90
 )

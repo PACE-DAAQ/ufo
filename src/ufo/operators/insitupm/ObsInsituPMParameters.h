@@ -27,7 +27,8 @@ class ObsInsituPMParameters : public ObsOperatorParametersBase {
  public:
   oops::RequiredParameter <std::string> Model
     {"model",
-     "Name of the model",
+     "Name of the model: CMAQ or GOCART. GOCART uses the lowest model level "
+     "(vertical_coordinate is ignored) and moist_air_density from the trajectory",
      this};
 
   oops::RequiredParameter <std::vector<std::string>> tracerGeovals
@@ -45,6 +46,12 @@ class ObsInsituPMParameters : public ObsOperatorParametersBase {
     {"tracer_modes_cmaq",
      "CMAQ PM modes: "
      "1-Aitken; 2-accumulation; 3-coarse",
+     this};
+
+  oops::OptionalParameter <std::vector<double>> tracerWeights
+    {"tracer_weights",
+     "GOCART only: weight of each tracer_geovals entry in the PM sum "
+     "(size-cut bin fraction, 1.38 for sulfate)",
      this};
 
   oops::Parameter <bool> UseScaleFacCMAQ

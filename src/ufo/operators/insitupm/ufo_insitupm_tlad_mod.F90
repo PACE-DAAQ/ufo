@@ -13,8 +13,10 @@ module ufo_insitupm_tlad_mod
  use ufo_vars_mod
  use ufo_constants_mod, only: rd
  use PM_cmaq_mod
+ use PM_gocart_mod
  use oops_variables_mod
  use obs_variables_mod
+ use missing_values_mod
 
  implicit none
  private
@@ -28,6 +30,9 @@ module ufo_insitupm_tlad_mod
   type(obs_variables), public :: obsvars
   type(oops_variables), public :: geovars
   integer(kind=c_int), allocatable :: tracer_modes_cmaq(:)
+  real(kind=kind_real), allocatable :: tracer_weights(:)   ! GOCART weights
+  real(kind=kind_real), allocatable :: rho(:,:)            ! GOCART trajectory moist air density
+  integer, allocatable :: ksfc(:)                          ! GOCART lowest-level index
   real(kind=kind_real), allocatable :: prs(:,:)
   real(kind=kind_real), allocatable :: ts(:,:)
   real(kind=c_double), allocatable :: facs(:,:,:)
@@ -64,11 +69,22 @@ character(kind=c_char,len=:), allocatable :: model_name, coord_name
      call self%geovars%push_back(tracer_variables(iq))          ! aerosol species
   end do
 
-  call f_conf%get_or_die("vertical_coordinate", coord_name)     ! vertical coordinate for interpolation
-  self%v_coord = coord_name
-
   call f_conf%get_or_die("model", model_name)                   ! model name
   self%model = model_name
+
+  if(self%model == "GOCART") then
+    call f_conf%get_or_die("tracer_weights", self%tracer_weights)
+    if(size(self%tracer_weights) /= self%ntracers) then
+      write(err_msg, *) "tracer_weights must have one entry per tracer_geovals"
+      call abor1_ftn(err_msg)
+    end if
+    self%nvars = self%obsvars%nvars()
+    deallocate(tracer_variables, model_name)
+    return
+  end if
+
+  call f_conf%get_or_die("vertical_coordinate", coord_name)     ! vertical coordinate for interpolation
+  self%v_coord = coord_name
 
   ! To be edited (for non-CMAQ models)
   if(self%model /= "CMAQ") then
@@ -116,6 +132,8 @@ subroutine ufo_insitupm_tlad_cleanup_(self)
   if (allocated(self%facs))    deallocate(self%facs)
   if (allocated(self%wi))    deallocate(self%wi)
   if (allocated(self%wf))    deallocate(self%wf)
+  if (allocated(self%rho))   deallocate(self%rho)
+  if (allocated(self%ksfc))  deallocate(self%ksfc)
 
 end subroutine ufo_insitupm_tlad_cleanup_
 
@@ -149,6 +167,11 @@ integer :: ilayer, iloc
 
  ! Make sure nothing already allocated
  call self%cleanup()
+
+ if(self%model == "GOCART") then
+   call ufo_insitupm_tlad_settraj_gocart(self, geovals, obss)
+   return
+ end if
 
  ! Get number of locations
  self%nlocs = obsspace_get_nlocs(obss)
@@ -253,6 +276,11 @@ type(ufo_geoval), pointer :: aer_profile
 character(len=MAXVARLEN) :: geovar
 character(len=MAXVARLEN) :: err_msg
 
+ if(self%model == "GOCART") then
+   call ufo_insitupm_simobs_tl_gocart(self, geovals, hofx)
+   return
+ end if
+
  allocate(qm_tl(self%ntracers, self%nlayers, nlocs))
  do iq = 1, self%ntracers
     geovar = self%geovars%variable(iq)
@@ -302,6 +330,11 @@ type(ufo_geoval), pointer :: aer_profile
 character(len=MAXVARLEN) :: geovar
 character(len=MAXVARLEN) :: err_msg
 
+ if(self%model == "GOCART") then
+   call ufo_insitupm_simobs_ad_gocart(self, geovals, hofx)
+   return
+ end if
+
  allocate(qm_ad(self%ntracers, self%nlayers, nlocs))
 
   ! To be edited (for non-CMAQ models)
@@ -344,6 +377,105 @@ character(len=MAXVARLEN) :: err_msg
 end subroutine ufo_insitupm_simobs_ad_
 
 ! ------------------------------------------------------------------------------
+!> GOCART: store lowest-level index and trajectory moist air density at each obs location
+subroutine ufo_insitupm_tlad_settraj_gocart(self, geovals, obss)
+use obsspace_mod, only: obsspace_get_nlocs
+implicit none
+class(ufo_insitupm_tlad), intent(inout) :: self
+type(ufo_geovals),        intent(in)    :: geovals
+type(c_ptr), value,       intent(in)    :: obss
+
+type(ufo_geoval), pointer :: prs_profile
+type(ufo_geoval), pointer :: rho_profile
+
+ self%nlocs = obsspace_get_nlocs(obss)
+
+ call ufo_geovals_get_var(geovals, var_prs, prs_profile)
+ self%nlayers = prs_profile%nval
+ allocate(self%prs(self%nlayers, self%nlocs))
+ self%prs = prs_profile%vals
+
+ call ufo_geovals_get_var(geovals, var_airdens, rho_profile)
+ allocate(self%rho(self%nlayers, self%nlocs))
+ self%rho = rho_profile%vals
+
+ allocate(self%ksfc(self%nlocs))
+ call find_lowest_level(self%nlayers, self%nlocs, self%prs, self%ksfc)
+
+end subroutine ufo_insitupm_tlad_settraj_gocart
+
+! ------------------------------------------------------------------------------
+!> GOCART tangent linear: hofx = rho_traj * sum_n w_n * dq_n at the lowest level
+subroutine ufo_insitupm_simobs_tl_gocart(self, geovals, hofx)
+implicit none
+class(ufo_insitupm_tlad), intent(in)    :: self
+type(ufo_geovals),        intent(in)    :: geovals
+real(c_double),           intent(inout) :: hofx(:,:)
+
+integer :: iq
+real(kind_real), allocatable :: qm_tl(:,:,:)
+type(ufo_geoval), pointer :: aer_profile
+character(len=MAXVARLEN) :: geovar
+
+ allocate(qm_tl(self%ntracers, self%nlayers, self%nlocs))
+ do iq = 1, self%ntracers
+   geovar = self%geovars%variable(iq)
+   call ufo_geovals_get_var(geovals, geovar, aer_profile)
+   qm_tl(iq,:,:) = aer_profile%vals
+ end do
+
+ call get_PM_gocart_tl(self%nlayers, self%nvars, self%nlocs, self%ntracers, &
+                       self%tracer_weights, self%ksfc, self%rho, qm_tl, hofx)
+
+ deallocate(qm_tl)
+
+end subroutine ufo_insitupm_simobs_tl_gocart
+
+! ------------------------------------------------------------------------------
+!> GOCART adjoint: dq_n(ksfc) += rho_traj * w_n * hofx_ad
+subroutine ufo_insitupm_simobs_ad_gocart(self, geovals, hofx)
+implicit none
+class(ufo_insitupm_tlad), intent(in)    :: self
+type(ufo_geovals),        intent(inout) :: geovals
+real(c_double),           intent(in)    :: hofx(:,:)
+
+integer :: iq
+real(kind_real), allocatable :: qm_ad(:,:,:)
+real(kind_real), allocatable :: hofx_ad(:,:)
+real(c_double) :: missing
+type(ufo_geoval), pointer :: aer_profile
+character(len=MAXVARLEN) :: geovar
+
+ allocate(qm_ad(self%ntracers, self%nlayers, self%nlocs))
+ qm_ad = 0.0_kind_real
+
+ ! QC-rejected obs arrive as the missing value; they must not enter the adjoint
+ missing = missing_value(missing)
+ allocate(hofx_ad(size(hofx, 1), size(hofx, 2)))
+ hofx_ad = hofx
+ where (hofx_ad == missing) hofx_ad = 0.0_kind_real
+
+ call get_PM_gocart_ad(self%nlayers, self%nvars, self%nlocs, self%ntracers, &
+                       self%tracer_weights, self%ksfc, self%rho, hofx_ad, qm_ad)
+ deallocate(hofx_ad)
+
+ do iq = self%ntracers, 1, -1
+   geovar = self%geovars%variable(iq)
+   call ufo_geovals_get_var(geovals, geovar, aer_profile)
+   if (.not. allocated(aer_profile%vals)) then
+     aer_profile%nprofiles = self%nlocs
+     aer_profile%nval      = self%nlayers
+     allocate(aer_profile%vals(aer_profile%nval, aer_profile%nprofiles))
+     aer_profile%vals(:,:) = 0.0_kind_real
+   end if
+   aer_profile%vals = aer_profile%vals + qm_ad(iq,:,:)
+ end do
+
+ deallocate(qm_ad)
+
+end subroutine ufo_insitupm_simobs_ad_gocart
+
+! ------------------------------------------------------------------------------
 
 subroutine  destructor(self)
   type(ufo_insitupm_tlad), intent(inout)  :: self
@@ -351,6 +483,7 @@ subroutine  destructor(self)
   call self%cleanup()
 
   if (allocated(self%tracer_modes_cmaq)) deallocate(self%tracer_modes_cmaq)
+  if (allocated(self%tracer_weights)) deallocate(self%tracer_weights)
 
 end subroutine destructor
 
