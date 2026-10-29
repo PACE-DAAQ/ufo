@@ -15,7 +15,13 @@
 #include <unordered_map>
 #include <vector>
 
+// To skip the warning about maybe-uninitialized variables in boost multi_array headers.
+// Will only skip this warning for the boost multi_array headers,
+// and only for this file so that we can still get the warning for our own code.
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wmaybe-uninitialized"
 #include <boost/multi_array.hpp>
+#pragma GCC diagnostic pop
 #include <boost/optional.hpp>
 #include <boost/variant.hpp>
 #include <boost/variant/multivisitors.hpp>
@@ -111,7 +117,6 @@ const typename DataExtractorPayload<T>::template const_array_view<1>::type get1D
         "Unable to fetch a 1D array slice with the provided constraints.", Here());
 
   typedef boost::multi_array_types::index_range range_t;
-  typedef typename DataExtractorPayload<T>::template const_array_view<1>::type view1D;
   typename DataExtractorPayload<T>::index_gen indices;
 
   if (dimIndex == 0) {
@@ -178,7 +183,6 @@ const typename DataExtractorPayload<T>::template const_array_view<2>::type get2D
         "Unable to fetch a 2D array slice with the provided constraints.", Here());
 
   typedef boost::multi_array_types::index_range range_t;
-  typedef typename DataExtractorPayload<T>::template const_array_view<2>::type view2D;
   typename DataExtractorPayload<T>::index_gen indices;
 
   size_t sumIndex = dimIndex0 + dimIndex1;

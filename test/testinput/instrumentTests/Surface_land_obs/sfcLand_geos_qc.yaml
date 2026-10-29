@@ -1,6 +1,7 @@
 time window:
   begin: 2021-12-11T20:30:00Z
   end: 2021-12-12T03:30:00Z
+  bound to include: begin  # consistency with test data from "ncdiag"
 
 observations:
 
@@ -57,6 +58,20 @@ observations:
        - name: specificHumidity
 
   obs filters:
+
+  # Obs file is out-dated, and has varName instead of
+  # varNamesAt2M. Alias to correct names here for use
+  # in obsfunctions below
+  - filter: Variable Assignment
+    assignments:
+    - name: DerivedObsValue/airTemperatureAt2M
+      type: float
+      source variable:
+        name: ObsValue/airTemperature
+    - name: DerivedObsValue/specificHumidityAt2M
+      type: float
+      source variable:
+        name: ObsValue/specificHumidity
 
   # Apply variable changes needed for rescaled height coordinate
   # ------------------------------------------------------------
@@ -318,4 +333,4 @@ observations:
     action:
       name: reject
 
-  passedBenchmark: 8
+  passedBenchmark: 7

@@ -6,8 +6,12 @@
  */
 
 #include "ufo/variabletransforms/Cal_Wind.h"
+
+#include <numeric>
+
 #include "ufo/utils/Constants.h"
 
+#include "ioda/ObsSpace.h"
 #include "ufo/filters/VariableTransformParametersBase.h"
 
 
@@ -23,8 +27,8 @@ static TransformMaker<Cal_WindSpeedAndDirection>
 Cal_WindSpeedAndDirection::Cal_WindSpeedAndDirection(
     const Parameters_ &options,
     const ObsFilterData &data,
-    const std::shared_ptr<ioda::ObsDataVector<int>> &flags,
-    const std::shared_ptr<ioda::ObsDataVector<float>> &obserr)
+    ioda::ObsDataVector<int> &flags,
+    ioda::ObsDataVector<float> &obserr)
     : TransformBase(options, data, flags, obserr),
       group_(options.group),
       eastwardwindvariable_(options.EastwardWindVariable),
@@ -89,8 +93,8 @@ static TransformMaker<Cal_WindComponents>
 Cal_WindComponents::Cal_WindComponents(
     const Parameters_ &options,
     const ObsFilterData &data,
-    const std::shared_ptr<ioda::ObsDataVector<int>> &flags,
-    const std::shared_ptr<ioda::ObsDataVector<float>> &obserr)
+    ioda::ObsDataVector<int> &flags,
+    ioda::ObsDataVector<float> &obserr)
   : TransformBase(options, data, flags, obserr),
     group_(options.group),
     windspeedvariable_(options.WindSpeedVariable),

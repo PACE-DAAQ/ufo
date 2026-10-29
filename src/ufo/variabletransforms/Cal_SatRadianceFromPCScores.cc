@@ -29,8 +29,8 @@ static TransformMaker<Cal_SatRadianceFromPCScores>
 Cal_SatRadianceFromPCScores::Cal_SatRadianceFromPCScores(
     const Parameters_ &options,
     const ObsFilterData &data,
-    const std::shared_ptr<ioda::ObsDataVector<int>> &flags,
-    const std::shared_ptr<ioda::ObsDataVector<float>> &obserr)
+    ioda::ObsDataVector<int> &flags,
+    ioda::ObsDataVector<float> &obserr)
     : TransformBase(options, data, flags, obserr), parameters_(options),
       variables_({parameters_.pcVariable.value()}),
       channels_(parameters_.destinationVariable.value().channels()) {
@@ -81,6 +81,24 @@ void Cal_SatRadianceFromPCScores::runTransform(const std::vector<bool> &apply) {
     reconstructorChannels[i] = payloadChannels[i][0][0];
   }
 
+  // If user specified Read Means associated with reconstruction operator from
+  // MetaData/sensorChannelNumber
+  std::vector<float> operatorMean(nReconstructorChannels);
+  std::fill(operatorMean.begin(), operatorMean.end(), 0.0);
+
+  if (parameters_.operatorMean.value().size() > 0) {
+    const std::string meanGroup = parameters_.operatorMean.value();
+    const boost::multi_array<float, 3> payloadMean
+                                     = Extractor.loadData(meanGroup).payloadArray;
+    ASSERT((payloadMean.shape()[1] == 1) && (payloadMean.shape()[2] == 1));  // 1-d data
+    ASSERT(payloadMean.num_elements() == nReconstructorChannels);
+    for (std::size_t i = 0; i < nReconstructorChannels; ++i) {
+      operatorMean[i] = payloadMean[i][0][0];
+    }
+  }
+
+
+
   // Channels for destination will normally be the same as obsdb_.assimvariables().channels()
   const Variable radianceVar = parameters_.destinationVariable;
   const std::vector<int> destinationChannels = radianceVar.channels();
@@ -110,7 +128,7 @@ void Cal_SatRadianceFromPCScores::runTransform(const std::vector<bool> &apply) {
   // multiplying also by a scaling factor to produce radiances in W m^-2 sr^-1 (m^-1)^-1
   float scalingFactor = parameters_.scalingFactor.value();
   Eigen::MatrixXf reconMatrix \
-    = reconstructor(Eigen::all, destinationChannelIndex).transpose() * pcScoresMatrix;
+    = reconstructor(Eigen::placeholders::all, destinationChannelIndex).transpose() * pcScoresMatrix;
   reconMatrix *= scalingFactor;
 
   // Loop over channels and obs locations to populate derived observation variable
@@ -120,15 +138,16 @@ void Cal_SatRadianceFromPCScores::runTransform(const std::vector<bool> &apply) {
     for (size_t iloc = 0; iloc < nlocs; ++iloc) {
       // Only for locations selected by where clause
       if (apply[iloc]) {
-        reconRadiance[ichan][iloc] = reconMatrix(ichan, iloc);
+        reconRadiance[ichan][iloc] = reconMatrix(ichan, iloc) +\
+                                     operatorMean[destinationChannelIndex[ichan]];
       }
     }
   }
 
   //  Write out the radiances to the Derived group and update qcflags
   for (size_t ichan = 0; ichan < nDestinationChannels; ++ichan) {
-    putObservation(radianceVar.variable() + "_" + std::to_string(destinationChannels[ichan]),
-                   reconRadiance[ichan]);
+    putObservation(radianceVar.variable(), std::to_string(destinationChannels[ichan]),
+                   reconRadiance[ichan], radianceVar.dimList());
   }
 
   oops::Log::trace() << "Cal_SatRadianceFromPCScores::runTransform done" << std::endl;

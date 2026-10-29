@@ -1,6 +1,7 @@
 time window:
   begin: 2019-01-01T00:00:00Z
   end: 2022-01-15T03:00:00Z
+  bound to include: begin  # consistency with test data from "ncdiag"
 
 observations:
 - obs space:
@@ -24,10 +25,6 @@ observations:
           type: int
           function:
             name: IntObsFunction/TropopauseHeight
-            options:
-              model pressure: air_pressure
-              model specific humidity: water_vapor_mixing_ratio_wrt_moist_air
-              model temperature: air_temperature
     - filter: Variable Assignment
       assignments:
         - name: MetaData/tropopauseLevelRH
@@ -35,9 +32,6 @@ observations:
           function:
             name: IntObsFunction/TropopauseHeight
             options:
-              model pressure: air_pressure
-              model specific humidity: water_vapor_mixing_ratio_wrt_moist_air
-              model temperature: air_temperature
               rhmethod: true
   compareVariables:
     - reference:

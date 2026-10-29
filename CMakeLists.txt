@@ -7,9 +7,9 @@
 # UFO
 ################################################################################
 
-cmake_minimum_required( VERSION 3.12 )
+cmake_minimum_required( VERSION 3.23 )
 
-project( ufo VERSION 1.10.0 LANGUAGES C CXX Fortran )
+project( ufo VERSION 1.13.0 LANGUAGES C CXX Fortran )
 
 ## Ecbuild integration
 find_package( ecbuild 3.3.2 REQUIRED )
@@ -68,10 +68,15 @@ find_package( eckit 1.24.4 REQUIRED )
 find_package( fckit 0.11.0 REQUIRED )
 
 # ioda
-find_package( ioda 2.9.0 REQUIRED )
+find_package( ioda 2.12.0 REQUIRED )
+
+# leaky inherited dependency from ioda
+# will be removed these once the ioda issue is fixed
+find_package( bufr 12.0.1 QUIET )
+find_package( bufr_query QUIET )
 
 # oops
-find_package( oops 1.10.0 REQUIRED )
+find_package( oops 1.13.0 REQUIRED )
 
 # crtm
 find_package( crtm 2.4.1 QUIET )
@@ -89,13 +94,18 @@ else( ${crtm_FOUND} )
     message(STATUS "CRTM NOT FOUND; Excluding CRTM Observation Operator")
 endif( ${crtm_FOUND} )
 
-# RTTOV
-find_package( rttov 12.1.0 QUIET )
-if( ${rttov_FOUND} )
-    message(STATUS "RTTOV FOUND; Including RTTOV Radiance Observation Operator (${rttov_VERSION})")
-else( ${rttov_FOUND} )
-    message(STATUS "RTTOV NOT FOUND; Excluding RTTOV Radiance Observation Operator")
-endif( ${rttov_FOUND} )
+# RTTOV: Try v14 first, then v12
+find_package(rttov 14.0.0 QUIET)
+if(rttov_FOUND)
+    message(STATUS "RTTOV v14 FOUND; Including RTTOV v14 Radiance Observation Operator (${rttov_VERSION})")
+else()
+    find_package(rttov 12.3.0 QUIET)
+    if(rttov_FOUND)
+        message(STATUS "RTTOV v12 FOUND; Including RTTOV v12 Radiance Observation Operator (${rttov_VERSION})")
+    else()
+        message(STATUS "RTTOV NOT FOUND; Excluding RTTOV Radiance Observation Operator")
+    endif()
+endif()
 
 # GSW
 find_package( gsw QUIET )
@@ -133,6 +143,9 @@ else( ${oasim_FOUND} )
     message(STATUS "OASIM NOT FOUND: Excluding Ocean Atmosphere Spectral Irradiance Model")
 endif( ${oasim_FOUND} )
 
+# PPRO dual-polarization radar operator (now built-in)
+message(STATUS "PPRO: Including built-in PPRO dual-polarization radar operator")
+
 ################################################################################
 # Test data
 ################################################################################
@@ -140,7 +153,14 @@ endif( ${oasim_FOUND} )
 # Set values for downloading crtm test data from tarball
 
 if( ${crtm_FOUND} )
-    if( crtm_VERSION VERSION_GREATER_EQUAL 3.0.0 )
+    if( crtm_VERSION VERSION_GREATER_EQUAL 3.1.6 AND crtm_VERSION VERSION_LESS 3.2.0 )
+        #https://bin.ssec.wisc.edu/pub/s4/CRTM/fix_REL-3.1.6.0.tgz
+        set (crtm_data_download_url "https://bin.ssec.wisc.edu/pub/s4/CRTM")
+        set (crtm_data_tag "fix_REL-3.1.6.0")
+        set (crtm_data_tag_postfix "fix/")
+        set (crtm_data_tarball_hash "fe65edff7621935c37976b406832d627")
+        set (crtm_data_tarball_name ${crtm_data_tag}.tgz)
+    elseif( crtm_VERSION VERSION_GREATER_EQUAL 3.0.0 )
         #https://bin.ssec.wisc.edu/pub/s4/CRTM/fix_REL-3.1.2.0.tgz
         set (crtm_data_download_url "https://bin.ssec.wisc.edu/pub/s4/CRTM")
         set (crtm_data_tag "fix_REL-3.1.2.0")  #this may cause problems with older CRTM
@@ -169,7 +189,6 @@ endif( ${crtm_FOUND} )
 # Sources
 ################################################################################
 add_subdirectory( src )
-add_subdirectory( tools )
 add_subdirectory( resources )
 
 if( ENABLE_UFO_DOC )
@@ -191,11 +210,30 @@ if( BUILD_TESTING )
   # scope so that downstream repos have access to it
   set (UFO_CRTM_TESTFILES_PATH ${UFO_CRTM_TESTFILES_PATH} PARENT_SCOPE)
   set (UFO_UFO_TESTFILES_PATH ${UFO_UFO_TESTFILES_PATH} PARENT_SCOPE)
+
+  file( MAKE_DIRECTORY ${CMAKE_BINARY_DIR}/bin )
+  file( COPY_FILE ${PROJECT_SOURCE_DIR}/tools/ufo_cpplint.py
+        ${CMAKE_BINARY_DIR}/bin/ufo_cpplint.py ONLY_IF_DIFFERENT )
   ecbuild_add_test( TARGET ufo_coding_norms
                     TYPE SCRIPT
-                    COMMAND ${CMAKE_BINARY_DIR}/bin/${PROJECT_NAME}_cpplint.py
+                    COMMAND ${CMAKE_BINARY_DIR}/bin/ufo_cpplint.py
                     ARGS --quiet --recursive ${CMAKE_CURRENT_SOURCE_DIR}/src ${CMAKE_CURRENT_SOURCE_DIR}/test
-                    WORKING_DIRECTORY ${CMAKE_BINARY_DIR}/bin )
+                    WORKING_DIRECTORY ${CMAKE_BINARY_DIR}/bin
+                    LABELS lint tier2 )
+  find_program(
+    FORTITUDE_EXECUTABLE
+    NAMES fortitude
+    DOC "Path to the Fortitude linter executable"
+  )
+  if( FORTITUDE_EXECUTABLE )
+    ecbuild_add_test(
+      TARGET "${PROJECT_NAME}_fortitude_check"
+      LABELS lint tier2
+      TYPE SCRIPT
+      COMMAND "${FORTITUDE_EXECUTABLE}"
+      ARGS check "${CMAKE_CURRENT_SOURCE_DIR}"
+    )
+  endif()
 endif()
 
 ## Export package

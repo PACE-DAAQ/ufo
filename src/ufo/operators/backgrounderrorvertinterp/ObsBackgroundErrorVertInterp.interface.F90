@@ -5,9 +5,11 @@
 
 module ufo_backgrounderrorvertinterp_mod_c
 
-use iso_c_binding
+use, intrinsic :: iso_c_binding, only: c_char, c_int, c_ptr
 use ufo_backgrounderrorvertinterp_mod, only: ufo_backgrounderrorvertinterp_fillobsdiags
 implicit none
+private
+public :: ufo_backgrounderrorvertinterp_fillobsdiags_c
 
 contains
 
@@ -17,14 +19,15 @@ subroutine ufo_backgrounderrorvertinterp_fillobsdiags_c(len_obs_vcoord, c_obs_vc
                                                         len_obs_vgroup, c_obs_vgroup, &
                                                         len_vcoord, c_vcoord, &
                                                         c_key_geovals, c_obsspace, c_nlocs, &
-                                                        c_obsvars, c_key_obsdiags) &
-  bind(c, name='ufo_backgrounderrorvertinterp_fillobsdiags_f90')
+                                                        c_obsvars, c_conf, c_key_obsdiags) &
+  bind(c, name="ufo_backgrounderrorvertinterp_fillobsdiags_f90")
 
   use string_f_c_mod,     only: c_f_string
   use oops_variables_mod, only: oops_variables
   use ufo_geovals_mod,    only: ufo_geovals
   use ufo_geovals_mod_c,  only: ufo_geovals_registry
   use ufo_vars_mod,       only: MAXVARLEN
+  use fckit_configuration_module, only: fckit_configuration
   implicit none
 
   integer(c_int), intent(in) :: len_obs_vcoord
@@ -37,6 +40,7 @@ subroutine ufo_backgrounderrorvertinterp_fillobsdiags_c(len_obs_vcoord, c_obs_vc
   type(c_ptr), value, intent(in) :: c_obsspace
   integer(c_int), intent(in) :: c_nlocs
   type(c_ptr), value, intent(in) :: c_obsvars
+  type(c_ptr), intent(in), value :: c_conf
   integer(c_int), intent(in) :: c_key_obsdiags
 
   character(len=MAXVARLEN) :: obs_vcoord
@@ -44,8 +48,10 @@ subroutine ufo_backgrounderrorvertinterp_fillobsdiags_c(len_obs_vcoord, c_obs_vc
   character(len=MAXVARLEN) :: vcoord
   type(ufo_geovals), pointer :: geovals
   type(oops_variables)       :: obsvars
+  type(fckit_configuration) :: f_conf
   type(ufo_geovals), pointer :: obsdiags
 
+  f_conf = fckit_configuration(c_conf)
   call c_f_string(c_obs_vcoord, obs_vcoord)
   call c_f_string(c_obs_vgroup, obs_vgroup)
   call c_f_string(c_vcoord, vcoord)
@@ -54,7 +60,9 @@ subroutine ufo_backgrounderrorvertinterp_fillobsdiags_c(len_obs_vcoord, c_obs_vc
   call ufo_geovals_registry%get(c_key_obsdiags, obsdiags)
 
   call ufo_backgrounderrorvertinterp_fillobsdiags(obs_vcoord, obs_vgroup, vcoord, &
-                                                  geovals, c_obsspace, c_nlocs, obsvars, obsdiags)
+                                                  geovals, c_obsspace, c_nlocs, obsvars, f_conf, &
+                                                  obsdiags)
+  call f_conf%final()
 
 end subroutine ufo_backgrounderrorvertinterp_fillobsdiags_c
 

@@ -8,6 +8,7 @@
 #include <algorithm>
 #include <string>
 
+#include "ioda/ObsSpace.h"
 #include "oops/util/missingValues.h"
 #include "ufo/variabletransforms/Cal_PStar.h"
 
@@ -23,8 +24,8 @@ static TransformMaker<Cal_PStar>
 Cal_PStar::Cal_PStar(
     const GenericVariableTransformParameters &options,
     const ObsFilterData &data,
-    const std::shared_ptr<ioda::ObsDataVector<int>> &flags,
-    const std::shared_ptr<ioda::ObsDataVector<float>> &obserr)
+    ioda::ObsDataVector<int> &flags,
+    ioda::ObsDataVector<float> &obserr)
     : TransformBase(options, data, flags, obserr), gvals_() {
     gvals_ += Variable("surf_param_a@GeoVaLs");
     gvals_ += Variable("surf_param_b@GeoVaLs");

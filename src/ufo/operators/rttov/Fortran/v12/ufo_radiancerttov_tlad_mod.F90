@@ -8,9 +8,9 @@
 module ufo_radiancerttov_tlad_mod
 
   use fckit_configuration_module, only: fckit_configuration
-  use fckit_log_module, only : fckit_log
-  use iso_c_binding
+  use, intrinsic :: iso_c_binding
   use kinds
+  use logger_mod, only : oops_log
   use missing_values_mod
 
   use obsspace_mod
@@ -56,12 +56,13 @@ module ufo_radiancerttov_tlad_mod
 contains
 
   ! ------------------------------------------------------------------------------
-  subroutine ufo_radiancerttov_tlad_setup(self, f_confOper, channels)
+  subroutine ufo_radiancerttov_tlad_setup(self, f_confOper, channels, qc_passed)
     implicit none
 
     class(ufo_radiancerttov_tlad), intent(inout) :: self
     type(fckit_configuration), intent(in)        :: f_confOper
     integer(c_int),            intent(in)        :: channels(:)  !List of channels to use
+    integer(c_int), optional,  intent(in)        :: qc_passed(:) !List of qcflags_passed values, not used
 
     type(fckit_configuration)                    :: f_confOpts ! RTcontrol
     type(fckit_configuration)                    :: f_confLinOper
@@ -80,7 +81,7 @@ contains
 
     !DAR what is the RTTOV equivalant of making sure that humidity and ozone data are present
     if ( ufo_vars_getindex(self%conf%Absorbers, var_q) < 1 ) then
-      message = 'ufo_radiancerttov_tlad_setup error: H2O must be included in RTTOV Absorbers'
+      message = "ufo_radiancerttov_tlad_setup error: H2O must be included in RTTOV Absorbers"
       call abor1_ftn(message)
     end if
 
@@ -114,12 +115,13 @@ contains
     end do coefloop
 
     if ( any(self % coefindex == 0) ) then
-      message = 'ufo_radiancerttov_tlad_setup error: input channels not in the coefficient file'
+      message = "ufo_radiancerttov_tlad_setup error: input channels not in the coefficient file"
       call abor1_ftn(message)
     end if
 
-    if (self % conf % read_Cmatrix) &
+    if (self % conf % read_Cmatrix) then
       call self % reconradop % setup(self % RTprof_k, self % conf)
+    end if
 
   end subroutine ufo_radiancerttov_tlad_setup
 
@@ -141,7 +143,7 @@ contains
   end subroutine ufo_radiancerttov_tlad_delete
 
   ! ------------------------------------------------------------------------------
-  subroutine ufo_radiancerttov_tlad_settraj(self, geovals, obss, hofxdiags)
+  subroutine ufo_radiancerttov_tlad_settraj(self, geovals, obss, hofxdiags, qcf_p)
 
     use fckit_mpi_module,   only: fckit_mpi_comm
 
@@ -151,12 +153,13 @@ contains
     type(ufo_geovals),             intent(in)    :: geovals
     type(c_ptr), value,            intent(in)    :: obss
     type(ufo_geovals),             intent(inout) :: hofxdiags    !non-h(x) diagnostics
+    type(c_ptr), value, optional,  intent(in)    :: qcf_p !not used
 
     real(c_double)                               :: missing
     type(fckit_mpi_comm)                         :: f_comm
 
     ! Local Variables
-    character(*), parameter                      :: routine_name = 'ufo_radiancerttov_tlad_settraj'
+    character(*), parameter                      :: routine_name = "ufo_radiancerttov_tlad_settraj"
     character(len=800)                           :: message
     type(rttov_chanprof), allocatable            :: chanprof(:)
     type(ufo_geoval), pointer                    :: geoval_temp
@@ -201,14 +204,14 @@ contains
     if (self % nprofiles == 0) return
 
     ! Allocate RTTOV profiles for ALL geovals for the direct calculation
-    write(message,'(2A, I0, A, I0, A)') &
-      trim(routine_name), ': Allocating ', self % nprofiles, ' profiles with ', self % nlevels, ' levels'
-    call fckit_log%debug(message)
+    write(message,"(2A, I0, A, I0, A)") &
+      trim(routine_name), ": Allocating ", self % nprofiles, " profiles with ", self % nlevels, " levels"
+    call oops_log%trace(message)
     call self % RTprof_K % alloc_profiles(errorstatus, self % conf, self % nprofiles, self % nlevels, init=.true., asw=1)
 
     !Assign the atmospheric and surface data from the GeoVaLs
-    message = trim(routine_name) // ': Creating RTTOV profiles from geovals'
-    call fckit_log%debug(message)
+    message = trim(routine_name) // ": Creating RTTOV profiles from geovals"
+    call oops_log%trace(message)
     call self % RTprof_K % setup_rtprof(geovals,obss,self % conf)
     do_profile_diagnostics = .false.
     if (any(self % RTProf_K % print_profile(:))) do_profile_diagnostics = .true.
@@ -225,8 +228,8 @@ contains
 
     ! Allocate memory for *ALL* RTTOV_K channels
     ! If RTTOV-SCATT is being used as the obs operator then memory is allocated for profiles_k in mw_scatt too
-    write(message,'(2A,I0,A)') &
-      trim(routine_name), ': Allocating Trajectory resources for RTTOV K: ', self % nprofiles * self % RTprof_K % nchan_inst, ' total channels'
+    write(message,"(2A,I0,A)") &
+      trim(routine_name), ": Allocating Trajectory resources for RTTOV K: ", self % nprofiles * self % RTprof_K % nchan_inst, " total channels"
     call self % RTprof_K % alloc_profiles_k(errorstatus, self % conf, self % nprofiles * self % RTprof_K % nchan_inst, self % nlevels, init=.true., asw=1)
 
     ! Used for keeping track of profiles for setting emissivity
@@ -236,29 +239,30 @@ contains
       allocate (RTTOV_Atlas_Emissivity(size(self % RTprof_K % chanprof)))
     end if
 
-    if (self % conf % read_Cmatrix) &
+    if (self % conf % read_Cmatrix) then
       call self % reconradop % allocate(self % RTprof_K)
+    end if
 
     ! Maximum number of profiles to be processed by RTTOV per pass
     if(self % conf % prof_by_prof) then
       nprof_max_sim = 1
     else
       nprof_max_sim = max(1,self % conf % nchan_max_sim / self % RTprof_K % nchan_inst)
-    endif
+    end if
     nprof_sim = min(nprof_max_sim, self % nprofiles)
 
     ! Determine the total number of radiances to simulate (nchan_sim).
     nchan_sim = nprof_sim * size(self%channels)
 
     ! Allocate structures for RTTOV direct and K code
-    write(message,'(2A,I0,A,I0,A)') &
-      trim(routine_name), ': Allocating resources for RTTOV direct (K): ', nprof_sim, ' and ', nchan_sim, ' channels'
-    call fckit_log%debug(message)
+    write(message,"(2A,I0,A,I0,A)") &
+      trim(routine_name), ": Allocating resources for RTTOV direct (K): ", nprof_sim, " and ", nchan_sim, " channels"
+    call oops_log%trace(message)
     call self % RTprof_K % alloc_direct(errorstatus, self % conf, nprof_sim, nchan_sim, self % nlevels, init=.true., asw=1)
 
-    write(message,'(2A,I0,A,I0,A)') &
-      trim(routine_name), ': Allocating resources for RTTOV K code: ', nprof_sim, ' and ', nchan_sim, ' channels'
-    call fckit_log%debug(message)
+    write(message,"(2A,I0,A,I0,A)") &
+      trim(routine_name), ": Allocating resources for RTTOV K code: ", nprof_sim, " and ", nchan_sim, " channels"
+    call oops_log%trace(message)
     call self % RTprof_K % alloc_k(errorstatus, self % conf, nprof_sim, nchan_sim, self % nlevels, init=.true., asw=1)
 
     prof_start = 1
@@ -330,7 +334,7 @@ contains
           ! but it will always be the same as the first because prof_by_prof is true for nsensors > 1
           ! This is to guard against a bad satellite identifier sneaking in when only processing one instrument.
           sensor_index = self % RTProf_K % sensor_index_array(iprof)
-        endif
+        end if
 
       end do
 
@@ -414,7 +418,7 @@ contains
       if (self % conf % read_Cmatrix) then
         jacobian_needed_rr = .true.
         call self % reconradop % hofx_jac_calc(self % RTprof_K, self % conf, chanprof(1:nchan_sim), prof_start, jacobian_needed_rr)
-      end if 
+      end if
 
       if(self % conf % SatRad_compatibility) then
         ! Zero jacobians if the humidity had been set to the minimum threshold
@@ -501,7 +505,7 @@ contains
                   end if
                 else
                   message = &
-                    'ufo_radiancerttov_tlad_settraj: Cloud Ice Water only supported for RTTOV-SCATT'
+                    "ufo_radiancerttov_tlad_settraj: Cloud Ice Water only supported for RTTOV-SCATT"
                   call abor1_ftn(message)
                 end if
               end if
@@ -522,14 +526,15 @@ contains
       end if
 
       if ( errorstatus /= errorstatus_success ) then
-        write(message,'(3A, I6, A, I6)') trim(routine_name), 'after rttov_k: error\n', 'skipping profiles ', &
-                                         prof_start, ' -- ', prof_start + nprof_sim - 1
-        call fckit_log%info(message)
+        write(message,"(3A, I6, A, I6)") trim(routine_name), "after rttov_k: error\n", "skipping profiles ", &
+                                         prof_start, " -- ", prof_start + nprof_sim - 1
+        call oops_log%warning(message)
       else
         ! Put simulated diagnostics into hofxdiags
         ! ----------------------------------------------
-        if(hofxdiags % nvar > 0) &
+        if(hofxdiags % nvar > 0) then
           call hofxdiags_methods % populate(self % RTprof_K, chanprof, self % conf, prof_start, hofxdiags)
+        end if
       end if
 
       ! increment profile and channel counters
@@ -579,20 +584,20 @@ contains
     ! --------------
     ! Check for zero profiles on a rank
     if (self % nprofiles == 0) then
-      message = myname_ // ' zero profiles on this rank!'
-      call fckit_log % info(message)
+      message = myname_ // " zero profiles on this rank!"
+      call oops_log%info(message)
       return
     end if
 
     ! Check if trajectory was set
     if (.not. self % ltraj) then
-      message = myname_ // ' trajectory wasnt set!'
+      message = myname_ // " trajectory wasnt set!"
       call abor1_ftn(message)
     end if
 
     ! Check if nlocs is consistent in geovals & hofx
     if (geovals % nlocs /= self % nprofiles) then
-      message = myname_ // ' error: nlocs inconsistent!'
+      message = myname_ // " error: nlocs inconsistent!"
       call abor1_ftn(message)
     end if
 
@@ -609,7 +614,7 @@ contains
 
           ! Check model levels is consistent in geovals
           if (geoval_d % nval /= self % nlevels) then
-            message = myname_ // ' error: layers inconsistent!'
+            message = myname_ // " error: layers inconsistent!"
             call abor1_ftn(message)
           end if
 
@@ -648,7 +653,7 @@ contains
                           geoval_d % vals(1:geoval_d % nval, prof))
                   end if
                 else
-                  message = 'ufo_radiancerttov_simobs_tl: Cloud Ice Water only supported for RTTOV-SCATT'
+                  message = "ufo_radiancerttov_simobs_tl: Cloud Ice Water only supported for RTTOV-SCATT"
                   call abor1_ftn(message)
                 end if
               end if
@@ -687,11 +692,11 @@ contains
           end do
 
         case default
-          message = trim(varname) // ' in increment list but not setup in ' // myname_
+          message = trim(varname) // " in increment list but not setup in " // myname_
           call abor1_ftn(message)
       end select
 
-    end do ! main variable loop 
+    end do ! main variable loop
 
   end subroutine ufo_radiancerttov_simobs_tl
 
@@ -720,20 +725,20 @@ contains
     ! --------------
     ! Check for zero profiles on a rank
     if (self % nprofiles == 0) then
-      message = myname_ // ' zero profiles on this rank!'
-      call fckit_log % info(message)
+      message = myname_ // " zero profiles on this rank!"
+      call oops_log%info(message)
       return
     end if
 
     ! Check if trajectory was set
     if (.not. self % ltraj) then
-      message = myname_ // ' trajectory was not set!'
+      message = myname_ // " trajectory was not set!"
       call abor1_ftn(message)
     end if
 
     ! Check if nlocs is consistent in geovals & hofx
     if (geovals % nlocs /= self % nprofiles) then
-      message = myname_ // ' error: nlocs inconsistent!'
+      message = myname_ // " error: nlocs inconsistent!"
       call abor1_ftn(message)
     end if
 
@@ -775,12 +780,12 @@ contains
                         self % RTprof_K % mw_scatt % profiles_k(ichan+jchan-1) % ciw(:) * hofx(jchan, prof)
                     end if
                   else
-                    message = 'ufo_radiancerttov_simobs_ad: Cloud Ice Water only supported for RTTOV-SCATT'
+                    message = "ufo_radiancerttov_simobs_ad: Cloud Ice Water only supported for RTTOV-SCATT"
                     call abor1_ftn(message)
                   end if
                 end if
-              endif
-            enddo
+              end if
+            end do
           end do
         ! Variables with 1 level - surface
         case (var_sfc_t2m, var_sfc_q2m, var_sfc_u10, var_sfc_v10, var_sfc_tskin, var_sfc_emiss)
@@ -817,7 +822,7 @@ contains
           end do
 
         case default
-          message = trim(varname) // ' in increment list but not setup in ' // myname_
+          message = trim(varname) // " in increment list but not setup in " // myname_
           call abor1_ftn(message)
       end select
 

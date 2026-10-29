@@ -1,9 +1,9 @@
 ! (C) Copyright 2018 UCAR
-! 
+!
 ! This software is licensed under the terms of the Apache Licence Version 2.0
-! which can be obtained at http://www.apache.org/licenses/LICENSE-2.0. 
+! which can be obtained at http://www.apache.org/licenses/LICENSE-2.0.
 
-!> Fortran module for thermodynamic computations and conversions for use in UFO 
+!> Fortran module for thermodynamic computations and conversions for use in UFO
 
 module thermo_utils_mod
 
@@ -50,12 +50,12 @@ subroutine gsi_tp_to_qs( t, p, es, qs)
    real(kind_real) :: omeps
    real(kind_real) :: t_c  ! T in degreesC.
 
-   omeps = 1.0_kind_real - rd_over_rv
+   omeps = 1.0_kind_real - (rd_over_rv)
    t_c = t - t0c
 
    es = es_w_0 * exp( es_beta * t_c / ( t_c + es_gamma ) )
 
-   qs = rd_over_rv * es / ( p - omeps * es )
+   qs = (rd_over_rv) * es / ( p - omeps * es )
 
    return
 end subroutine gsi_tp_to_qs

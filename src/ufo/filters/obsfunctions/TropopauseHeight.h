@@ -11,6 +11,7 @@
 #include <string>
 #include <vector>
 
+#include "oops/util/parameters/Parameter.h"
 #include "oops/util/parameters/Parameters.h"
 #include "oops/util/parameters/RequiredParameter.h"
 
@@ -26,21 +27,6 @@ class TropopauseHeightParameters : public oops::Parameters {
   OOPS_CONCRETE_PARAMETERS(TropopauseHeightParameters, Parameters)
 
  public:
-  oops::RequiredParameter<std::string> model_pressure
-    {"model pressure",
-     "Name of model pressure.",
-     this};
-
-  oops::RequiredParameter<std::string> model_specific_humidity
-    {"model specific humidity",
-     "Name of model specific humidity.",
-     this};
-
-  oops::RequiredParameter<std::string> model_temperature
-    {"model temperature",
-     "Name of model temperature.",
-     this};
-
   oops::Parameter<float> trop_max_pressure
     {"tropopause maximum pressure",
      100000.0f,

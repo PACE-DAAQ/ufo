@@ -18,6 +18,7 @@
 #include "ufo/filters/obsfunctions/ObsFunctionBase.h"
 #include "ufo/filters/Variable.h"
 #include "ufo/filters/Variables.h"
+#include "ufo/variabletransforms/Cal_Humidity.h"
 
 namespace ufo {
 
@@ -26,35 +27,19 @@ class MetOfficeRelativeHumidityCorrectionParameters : public oops::Parameters {
   OOPS_CONCRETE_PARAMETERS(MetOfficeRelativeHumidityCorrectionParameters, Parameters)
 
  public:
-  oops::RequiredParameter<std::string> model_pressure
-    {"model pressure",
-     "Name of model pressure.",
-     this};
-
-  oops::RequiredParameter<std::string>
-    model_water_vapor_mixing_ratio_wrt_moist_air{
-      "model specific humidity",
-      "Name of model specific humidity.",
-      this};
-
-  oops::RequiredParameter<std::string> model_relative_humidity
-    {"model relative humidity",
-     "Name of model relative humidity.",
-     this};
-
-  oops::RequiredParameter<std::string> model_temperature
-    {"model temperature",
-     "Name of model temperature.",
-     this};
-
   oops::RequiredParameter<std::string> observed_pressure
     {"observed pressure",
      "Name of observed pressure.",
      this};
 
+     oops::RequiredParameter<RelativeHumidityUnits> output_relative_humidity_units
+    {"output relative humidity units",
+     "Desired units of the output correction (percentage or fraction).",
+     this};
+
   oops::Parameter<bool> capsupersat
     {"capsupersat",
-     "Cap relative humidity at 100%",
+     "Cap relative humidity at 1 for fraction and 100% for percentage",
      false,
      this};
 };
@@ -91,6 +76,7 @@ class MetOfficeRelativeHumidityCorrection : public ObsFunctionBase<float> {
  private:
   MetOfficeRelativeHumidityCorrectionParameters options_;
   ufo::Variables invars_;
+  float observationRelativeHumidityAtSaturation_;
 };
 
 // -----------------------------------------------------------------------------

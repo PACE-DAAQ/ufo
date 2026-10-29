@@ -5,6 +5,7 @@
  * which can be obtained at http://www.apache.org/licenses/LICENSE-2.0.
  */
 
+#include "ioda/ObsSpace.h"
 #include "ufo/variabletransforms/Cal_RemapScanPosition.h"
 
 namespace ufo {
@@ -19,8 +20,8 @@ static TransformMaker<Cal_RemapScanPosition>
 Cal_RemapScanPosition::Cal_RemapScanPosition(
     const Parameters_ &options,
     const ObsFilterData &data,
-    const std::shared_ptr<ioda::ObsDataVector<int>> &flags,
-    const std::shared_ptr<ioda::ObsDataVector<float>> &obserr)
+    ioda::ObsDataVector<int> &flags,
+    ioda::ObsDataVector<float> &obserr)
     : TransformBase(options, data, flags, obserr), parameters_(options) {}
 
 /************************************************************************************/

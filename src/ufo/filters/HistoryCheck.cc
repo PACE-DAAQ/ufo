@@ -38,8 +38,8 @@
 namespace ufo {
 
 HistoryCheck::HistoryCheck(ioda::ObsSpace &obsdb, const Parameters_ &parameters,
-                            std::shared_ptr<ioda::ObsDataVector<int> > flags,
-                            std::shared_ptr<ioda::ObsDataVector<float> > obserr)
+                           ioda::ObsDataVector<int> &flags,
+                           ioda::ObsDataVector<float> &obserr)
   : FilterBase(obsdb, parameters, flags, obserr), options_(parameters)
 {
   oops::Log::debug() << "HistoryCheck: config = " << options_ << "\n";
@@ -47,8 +47,8 @@ HistoryCheck::HistoryCheck(ioda::ObsSpace &obsdb, const Parameters_ &parameters,
 
 HistoryCheck::HistoryCheck(ioda::ObsSpace &obsdb,
                            const ufo::HistoryCheck::Parameters_ &parameters,
-                           std::shared_ptr<ioda::ObsDataVector<int> > flags,
-                           std::shared_ptr<ioda::ObsDataVector<float> > obserr,
+                           ioda::ObsDataVector<int> &flags,
+                           ioda::ObsDataVector<float> &obserr,
                            const eckit::LocalConfiguration &conf)
   : HistoryCheck(obsdb, parameters, flags, obserr)
 {
@@ -93,10 +93,8 @@ void HistoryCheck::applyFilter(const std::vector<bool> & apply,
       widerObsSpace.put_db("ObsValue", "airTemperature", airTemperatures);
     }
   }  // end of manual data entry section used for unit testing
-  std::shared_ptr<ioda::ObsDataVector<float>> obserrWide(
-        new ioda::ObsDataVector<float>(widerObsSpace, widerObsSpace.obsvariables(), "ObsError"));
-  std::shared_ptr<ioda::ObsDataVector<int>> qcflagsWide(
-        new ioda::ObsDataVector<int>(widerObsSpace, widerObsSpace.obsvariables()));
+  ioda::ObsDataVector<float> obserrWide(widerObsSpace, widerObsSpace.obsvariables(), "ObsError");
+  ioda::ObsDataVector<int> qcflagsWide(widerObsSpace, widerObsSpace.obsvariables());
   const oops::RequiredParameter<SurfaceObservationSubtype> &subtype =
       options_.surfaceObservationSubtype;
   const boost::optional<TrackCheckShipCoreParameters> &trackOptions =
@@ -124,8 +122,7 @@ void HistoryCheck::applyFilter(const std::vector<bool> & apply,
   // If the stuck check filter parameters were set and if the stuck check filter has the potential
   // to flag observations (number of observations is greater than the numberStuckTolerance value)
   if (stuckOptions &&
-      widerObsSpace.index().size() >
-      stuckOptions->numberStuckTolerance.value().value()) {
+      widerObsSpace.nlocs() > stuckOptions->numberStuckTolerance.value().value()) {
     // If the observation subtype is one which the stuck check filter should be run on
     if (subtype != SurfaceObservationSubtype::TEMP &&
         subtype != SurfaceObservationSubtype::BATHY &&
@@ -198,7 +195,7 @@ void HistoryCheck::applyFilter(const std::vector<bool> & apply,
   // counter" until the full identifier to-be-added is unique within the set.
   std::set<obsIdentifierData> wideFlaggedLocationIds;
   // qc flags are the same across all variables for these filters
-  const std::vector<int> &wideFlags = (*qcflagsWide)[0];
+  const std::vector<int> &wideFlags = qcflagsWide[0];
   for (size_t i = 0; i < wideFlags.size(); i++) {
     if (wideFlags[i] == QCflags::track) {
       obsIdentifierData obsLabel = {

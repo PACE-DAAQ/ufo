@@ -29,7 +29,9 @@ static LinearObsOperatorMaker<ObsProductTLAD> makerProductTL_("Product");
 
 ObsProductTLAD::ObsProductTLAD(const ioda::ObsSpace & odb,
                                  const Parameters_ & parameters)
-  : LinearObsOperatorBase(odb, VariableNameMap(parameters.AliasFile.value())), odb_(odb)
+  : LinearObsOperatorBase(odb, VariableNameMap(parameters.AliasFile.value(),
+                                               parameters.variableMaps.value())),
+    odb_(odb)
 {
   oops::Log::trace() << "ObsProductTLAD constructor start" << std::endl;
 
@@ -110,8 +112,7 @@ void ObsProductTLAD::setTrajectory(const GeoVaLs & gv, ObsDiagnostics &, const Q
 
 // -----------------------------------------------------------------------------
 
-void ObsProductTLAD::simulateObsTL(const GeoVaLs & dx, ioda::ObsVector & dy,
-                                   const QCFlags_t & qc_flags) const {
+void ObsProductTLAD::simulateObsTL(const GeoVaLs & dx, ioda::ObsVector & dy) const {
   oops::Log::trace() << "ObsProductTLAD::simulateObsTL start" << std::endl;
 
   std::vector<double> vec(dy.nlocs());
@@ -135,8 +136,7 @@ void ObsProductTLAD::simulateObsTL(const GeoVaLs & dx, ioda::ObsVector & dy,
 
 // -----------------------------------------------------------------------------
 
-void ObsProductTLAD::simulateObsAD(GeoVaLs & dx, const ioda::ObsVector & dy,
-                                   const QCFlags_t & qc_flags) const {
+void ObsProductTLAD::simulateObsAD(GeoVaLs & dx, const ioda::ObsVector & dy) const {
   oops::Log::trace() << "ObsProductTLAD::simulateObsAD start" << std::endl;
 
   const double missing = util::missingValue<double>();

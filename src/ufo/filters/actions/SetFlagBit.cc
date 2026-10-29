@@ -10,6 +10,8 @@
 #include <string>
 
 #include "ioda/ObsDataVector.h"
+#include "ioda/ObsSpace.h"
+#include "oops/util/Logger.h"
 #include "ufo/filters/DiagnosticFlag.h"
 #include "ufo/filters/ObsFilterData.h"
 #include "ufo/filters/QCflags.h"
@@ -55,7 +57,8 @@ void SetFlagBit::apply(const Variables &vars,
         diagnosticFlags[iobs] |= bitsetter_;
       }
     }
-    data.obsspace().put_db(group, variableName, diagnosticFlags);
+    data.obsspace().put_db(group, variableName, diagnosticFlags,
+                           vars.variable(ifiltervar).dimList());
   }
   oops::Log::trace() << "SetFlagBit apply complete" << std::endl;
 }

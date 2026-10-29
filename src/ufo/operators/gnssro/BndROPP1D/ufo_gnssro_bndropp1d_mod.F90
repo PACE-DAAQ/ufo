@@ -1,7 +1,7 @@
 ! (C) Copyright 2017-2018 UCAR
-! 
+!
 ! This software is licensed under the terms of the Apache Licence Version 2.0
-! which can be obtained at http://www.apache.org/licenses/LICENSE-2.0. 
+! which can be obtained at http://www.apache.org/licenses/LICENSE-2.0.
 
 !> Fortran module for gnssro bending angle ropp1d forward operator
 !> following the ROPP (2018 Aug) implementation
@@ -15,10 +15,10 @@ use ufo_vars_mod
 use ufo_geovals_mod
 use ufo_basis_mod,     only: ufo_basis
 use vert_interp_mod
-use obsspace_mod  
+use obsspace_mod
 use missing_values_mod
 use ufo_gnssro_ropp1d_utils_mod
-use fckit_log_module,  only : fckit_log
+use logger_mod, only: oops_log
 use gnssro_mod_conf
 
 implicit none
@@ -71,19 +71,19 @@ subroutine ufo_gnssro_bndropp1d_simobs(self, geovals, hofx, obss)
   integer, allocatable, dimension(:) :: ichk
   type(ufo_geoval), pointer          :: t, q, prs, gph, gph_sfc
   real(kind_real), allocatable       :: obsLat(:), obsLon(:), obsImpP(:), obsLocR(:), obsGeoid(:)
-  integer                            :: iflip 
+  integer                            :: iflip
   integer                            :: use_compress
 
   use_compress = self%roconf%use_compress
 
-  write(err_msg,*) "TRACE: ufo_gnssro_bndropp1d_simobs: begin"
-  call fckit_log%debug(err_msg)
+  write(err_msg,*) "ufo_gnssro_bndropp1d_simobs: begin"
+  call oops_log%trace(err_msg)
 
 ! check if nlocs is consistent in geovals & hofx
   if (geovals%nlocs /= size(hofx)) then
-      write(err_msg,*) myname_, ' error: nlocs inconsistent!'
+      write(err_msg,*) myname_, " error: nlocs inconsistent!"
       call abor1_ftn(err_msg)
-  endif
+  end if
 
 ! get variables from geovals
   call ufo_geovals_get_var(geovals, var_ts,    t)         ! temperature
@@ -97,14 +97,14 @@ subroutine ufo_gnssro_bndropp1d_simobs(self, geovals, hofx, obss)
   nlev  = t%nval ! number of model levels
   nobs  = obsspace_get_nlocs(obss)
 
-  if (nobs > 0) then 
+  if (nobs > 0) then
      iflip = 0
-     if (prs%vals(1,1) .lt. prs%vals(prs%nval,1) ) then
-       iflip = 1 
-       write(err_msg,'(a)') '  ufo_gnssro_bndropp1d_simobs:'//new_line('a')//                         &
-                            '  Model vertical height profile is in descending order,'//new_line('a')// &
-                            '  but ROPP requires it to be ascending order, need flip'
-       call fckit_log%debug(err_msg)
+     if (prs%vals(1,1) < prs%vals(prs%nval,1) ) then
+       iflip = 1
+       write(err_msg,"(a)") "  ufo_gnssro_bndropp1d_simobs:"//new_line("a")//                         &
+                            "  Model vertical height profile is in descending order,"//new_line("a")// &
+                            "  but ROPP requires it to be ascending order, need flip"
+       call oops_log%debug(err_msg)
      end if
 
    ! set obs space struture
@@ -114,20 +114,20 @@ subroutine ufo_gnssro_bndropp1d_simobs(self, geovals, hofx, obss)
      allocate(obsLocR(nobs))
      allocate(obsGeoid(nobs))
 
-     call obsspace_get_db(obss, "MetaData", "longitude",            obsLon) 
-     call obsspace_get_db(obss, "MetaData", "latitude",             obsLat) 
+     call obsspace_get_db(obss, "MetaData", "longitude",            obsLon)
+     call obsspace_get_db(obss, "MetaData", "latitude",             obsLat)
      call obsspace_get_db(obss, "MetaData", "impactParameterRO",    obsImpP)
-     call obsspace_get_db(obss, "MetaData", "earthRadiusCurvature", obsLocR) 
-     call obsspace_get_db(obss, "MetaData", "geoidUndulation",      obsGeoid) 
+     call obsspace_get_db(obss, "MetaData", "earthRadiusCurvature", obsLocR)
+     call obsspace_get_db(obss, "MetaData", "geoidUndulation",      obsGeoid)
 
      nvprof = 1 ! number of vertical profiles (occultation points)
      allocate(ichk(nvprof))
      ichk(:) = 0   ! this will hold QC values for observation from QC flags
 
-     write(err_msg,*) "TRACE: ufo_gnssro_bndropp1d_simobs: begin observation loop, nobs =  ", nobs
-     call fckit_log%debug(err_msg)
+     write(err_msg,*) "ufo_gnssro_bndropp1d_simobs: begin observation loop, nobs =  ", nobs
+     call oops_log%trace(err_msg)
 
-     obs_loop: do iobs = 1, nobs 
+     obs_loop: do iobs = 1, nobs
 
        ob_time = 0.0
        call init_ropp_1d_statevec(ob_time,              &
@@ -146,34 +146,34 @@ subroutine ufo_gnssro_bndropp1d_simobs(self, geovals, hofx, obss)
                                ichk, ob_time,   &
                                obsLat(iobs),    &
                                obsLon(iobs),    &
-                               obsLocR(iobs),   &  
+                               obsLocR(iobs),   &
                                obsGeoid(iobs),  &
                                y)
 
        call ropp_fm_bangle_1d(x,y)
 
-   !  hack -- handling ropp missing value 
-       if (y%bangle(nvprof) .lt. -900.0_wp ) then
-          hofx(iobs) = missing 
+   !  hack -- handling ropp missing value
+       if (y%bangle(nvprof) < -900.0_wp ) then
+          hofx(iobs) = missing
           y%bangle(nvprof) = missing
        else
           hofx(iobs) = y%bangle(nvprof)  ! nvprof is just one point
        end if
-   !  hack -- handling ropp missing value 
+   !  hack -- handling ropp missing value
       call ropp_tidy_up_1d(x,y)
 
      end do obs_loop
- 
+
      deallocate(ichk)
-     deallocate(obsLat) 
+     deallocate(obsLat)
      deallocate(obsLon)
      deallocate(obsImpP)
      deallocate(obsLocR)
      deallocate(obsGeoid)
   end if ! nobs > 0
 
-  write(err_msg,*) "TRACE: ufo_gnssro_bndropp1d_simobs: complete"
-  call fckit_log%debug(err_msg)
+  write(err_msg,*) "ufo_gnssro_bndropp1d_simobs: complete"
+  call oops_log%trace(err_msg)
 
 end subroutine ufo_gnssro_bndropp1d_simobs
 ! ------------------------------------------------------------------------------

@@ -1,0 +1,95 @@
+time window:
+  begin: 2018-12-30T00:00:00Z
+  end: 2019-01-01T06:00:00Z
+
+observations:
+- obs space:
+    name: duplicate thinning with variables lat, lon, stationId
+    obsdatain:
+      engine:
+        type: H5File
+        obsfile: Data/ufo/testinput_tier_1/met_office_duplicate_check.nc4
+    # obsdataout:
+    #   engine:
+    #     type: H5File
+    #     obsfile: Data/qc_duplicate_thinning_3var_out.nc4
+    simulated variables: [airTemperature]
+  obs filters:
+  - filter: DuplicateThinning
+    analysis_time: 2019-01-01T00:03:07Z
+    analysis_time_tolerance: PT15S
+    min_spacing: PT35S
+    equidistant_time_selection: "before"
+    variable names: [MetaData/stationIdentification,
+                     MetaData/latitude,
+                     MetaData/longitude]
+    tolerance: [0.5, 0.5, 0.5]
+    # action:
+    #   name: reduce obs space
+  passedBenchmark: 132  # 1000 total obs, 868 thinned
+
+
+- obs space:
+    name: duplicate thinning with stationIdentification
+    obsdatain:
+      engine:
+        type: H5File
+        obsfile: Data/ufo/testinput_tier_1/met_office_duplicate_check.nc4
+    # obsdataout:
+    #   engine:
+    #     type: H5File
+    #     obsfile: Data/qc_duplicate_thinning_statid_out.nc4
+    simulated variables: [airTemperature]
+  obs filters:
+  - filter: DuplicateThinning
+    analysis_time: 2019-01-01T00:00:00Z
+    analysis_time_tolerance: PT0S # default
+    min_spacing: PT35S
+    variable names: [MetaData/stationIdentification] # default tolerance
+  passedBenchmark: 240   # 1000 total obs, 760 thinned due to duplication
+
+- obs space:
+    name: duplicate thinning with default values
+    obsdatain:
+      engine:
+        type: H5File
+        obsfile: Data/ufo/testinput_tier_1/met_office_duplicate_check.nc4
+    # obsdataout:
+    #   engine:
+    #     type: H5File
+    #     obsfile: Data/qc_duplicate_thinning_default_out.nc4
+    simulated variables: [airTemperature]
+  obs filters:
+  - filter: DuplicateThinning
+    analysis_time: 2019-01-01T00:00:00Z
+    action:
+      name: reduce obs space
+  passedBenchmark: 9   # 1000 total obs, kept 238, 358, 440, 460, 952, 199, 269, 797, 983
+
+# # Min spacing above observation tolerance:
+# time window:
+#   begin: 2000-01-01T00:00:00Z
+#   end: 2030-01-01T00:00:00Z
+
+# observations:
+# - obs space:
+#     name: Min spacing above observation tolerance
+#     obsdatain:
+#       engine:
+#         type: H5File
+#         obsfile: Data/ufo/testinput_tier_1/thinning_records.nc4
+#     # obsdataout:
+#     #   engine:
+#     #     type: H5File
+#     #     obsfile: Data/thinning_records_out.nc4
+#     simulated variables: [airTemperature]
+#   obs filters:
+#   - filter: DuplicateThinning
+#     filter variables: [airTemperature]
+#     analysis_time: 2010-01-01T00:04:05Z
+#     analysis_time_tolerance: PT5S
+#     min_spacing: PT1M
+#     variable name: [MetaData/category]
+#     tolerance: [0.5]
+#   passedObservationsBenchmark: [0, 2]
+#   passedBenchmark: 2

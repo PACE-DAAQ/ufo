@@ -16,6 +16,7 @@
 
 #include "ioda/ObsDataVector.h"
 #include "oops/util/IntSetParser.h"
+#include "oops/util/Logger.h"
 #include "oops/util/missingValues.h"
 #include "ufo/filters/ObsFilterData.h"
 #include "ufo/filters/obsfunctions/ObsErrorFactorLatRad.h"
@@ -76,10 +77,6 @@ ObsErrorBoundMW::ObsErrorBoundMW(const eckit::LocalConfiguration & conf)
     const boost::optional<Variable> &obserrvar = options_.obserrFunction.value();
     invars_ += *obserrvar;
   }
-
-  if (options_.obserrOriginal.value() != boost::none) {
-    const std::vector<float> &obserr0 = options_.obserrOriginal.value().get();
-  }
 }
 
 // -----------------------------------------------------------------------------
@@ -137,13 +134,13 @@ void ObsErrorBoundMW::compute(const ObsFilterData & in,
   }
 
   // Set channel numbers
-  int ich238, ich314, ich503, ich528, ich536, ich544, ich549, ich890;
+  int ich536 = 0, ich890 = 0;
   if (inst == "amsua") {
-    ich238 = 1, ich314 = 2, ich503 = 3, ich528 = 4, ich536 = 5;
-    ich544 = 6, ich549 = 7, ich890 = 15;
+    ich536 = 5;
+    ich890 = 15;
   } else if (inst == "atms") {
-    ich238 = 1, ich314 = 2, ich503 = 3, ich528 = 5, ich536 = 6;
-    ich544 = 7, ich549 = 8, ich890 = 16;
+    ich536 = 6;
+    ich890 = 16;
   }
   float thresholdfactor = 3.0;
   if (options_.thresholdfactor.value() != boost::none) {
@@ -169,7 +166,7 @@ void ObsErrorBoundMW::compute(const ObsFilterData & in,
       for (size_t iloc = 0; iloc < nlocs; ++iloc) {
         if (flaggrp == "PreQC") obserrdata[iloc] == missing ? qcflagdata[iloc] = 100
                                                             : qcflagdata[iloc] = 0;
-        (qcflagdata[iloc] == 0) ? (varinv = 1.0 / pow(obserrdata[iloc], 2)) : (varinv = 0.0);
+        (qcflagdata[iloc] == 0) ? (varinv = 1.0 / std::pow(obserrdata[iloc], 2)) : (varinv = 0.0);
         out[ichan][iloc] = (*obserr)[ichan][iloc];
         if (varinv > 0.0) {
           if (water_frac[iloc] > 0.99) {
@@ -226,13 +223,12 @@ void ObsErrorBoundMW::compute(const ObsFilterData & in,
     const std::vector<float> obserr0 = options_.obserrOriginal.value().get();
 
     for (size_t ichan = 0; ichan < nchans; ++ichan) {
-      int channel = ichan + 1;
       in.get(Variable(flaggrp+"/brightnessTemperature", channels_)[ichan], qcflagdata);
       in.get(Variable(errgrp+"/brightnessTemperature", channels_)[ichan], obserrdata);
       for (size_t iloc = 0; iloc < nlocs; ++iloc) {
         if (flaggrp == "PreQC") obserrdata[iloc] == missing ? qcflagdata[iloc] = 100
                                                             : qcflagdata[iloc] = 0;
-        (qcflagdata[iloc] == 0) ? (varinv = 1.0 / pow(obserrdata[iloc], 2)) : (varinv = 0.0);
+        (qcflagdata[iloc] == 0) ? (varinv = 1.0 / std::pow(obserrdata[iloc], 2)) : (varinv = 0.0);
         out[ichan][iloc] = obserr0[ichan];
         if (varinv > 0.0) {
             out[ichan][iloc] = std::fmin((thresholdfactor * obserr0[ichan]

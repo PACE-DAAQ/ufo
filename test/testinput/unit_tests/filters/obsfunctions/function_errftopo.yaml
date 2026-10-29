@@ -1,6 +1,7 @@
 time window:
   begin: 2018-04-14T20:00:00Z
   end: 2018-04-15T03:00:00Z
+  bound to include: begin  # consistency with test data from "ncdiag"
 
 observations:
 - obs space:
@@ -73,7 +74,8 @@ observations:
     name: ObsFunction/ObsErrorFactorTopoRad
     options:
       channels: *all_channels
-      sensor: iasi_metop-a
+      sensor: infrared
+      #height: 2000 #default
     variables: [error_inflation_factor_topo]
     channels: *all_channels
     tolerance: 1.0e-8

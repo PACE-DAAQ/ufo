@@ -14,6 +14,7 @@
 #include "ioda/distribution/InefficientDistribution.h"
 #include "ioda/ObsSpace.h"
 #include "oops/mpi/mpi.h"
+#include "oops/util/Logger.h"
 
 #include "ufo/filters/FilterUtils.h"
 #include "ufo/filters/QCflags.h"
@@ -416,6 +417,9 @@ RecursiveSplitter ObsAccessor::splitObservationsIntoIndependentGroups(
   case GroupBy::SINGLE_OBS:
     groupObservationsByCategoryVariable(validObsIds, splitter);
     break;
+  case GroupBy::RECORD_ID:
+    groupObservationsByRecordNumber(validObsIds, splitter);
+    break;
   }
   return splitter;
 }
@@ -442,10 +446,14 @@ void ObsAccessor::groupObservationsByCategoryVariable(
                                                  *obsdb_, *obsDistribution_, splitter);
     break;
 
+  case ioda::ObsDtype::Empty:
+    // Nothing to group for empty variable
+    break;
+
   default:
     throw eckit::UserError(
           categoryVariable_->group() + "/" + categoryVariable_->variable() +
-          " is neither an integer nor a string variable", Here());
+          " is not an implemented type of Integer, String, or Empty.", Here());
   }
 }
 
@@ -499,6 +507,23 @@ bool ObsAccessor::wereRecordsGroupedByCategoryVariable() const {
   return categoryVariable_ != boost::none &&
          categoryVariable_->variable() == groupingVar &&
          categoryVariable_->group() == "MetaData";
+}
+
+void ObsAccessor::fillGlocs(const std::vector<bool> &apply) const {
+  // Only fill glocs_ once.
+  if (glocs_.size() > 0) {
+    return;
+  }
+  const size_t nlocs = obsdb_->nlocs();
+  std::vector<bool> patchObsVec(nlocs);
+  obsDistribution_->patchObs(patchObsVec);
+  for (size_t i = 0; i < nlocs; ++i) {
+    if (apply[i] && patchObsVec[i]) {
+      const size_t gloc = obsDistribution_->globalUniqueConsecutiveLocationIndex(i);
+      glocs_.push_back(gloc);
+    }
+  }
+  oops::mpi::allGatherv(obsdb_->comm(), glocs_);
 }
 
 }  // namespace ufo

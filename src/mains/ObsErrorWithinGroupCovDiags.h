@@ -11,6 +11,7 @@
 #include <vector>
 
 #include "ioda/ObsSpace.h"
+#include "ioda/ObsSpaceParameters.h"
 #include "ioda/ObsVector.h"
 
 #include "oops/mpi/mpi.h"
@@ -70,8 +71,7 @@ class ObsErrorWithinGroupCovDiags : public oops::Application {
     ioda::ObsVector randomVec(obsdb);
     randomVec.random();
 
-    ObsErrorWithinGroupCov obserr(fullConfig.getSubConfiguration("obs error"),
-                                  obsdb, this->getComm());
+    ObsErrorWithinGroupCov obserr(params.obsError, obsdb, this->getComm());
     obserr.saveCorrelations(params.diags.value().filename, params.diags.value().recnum,
                             randomVec);
     return 0;

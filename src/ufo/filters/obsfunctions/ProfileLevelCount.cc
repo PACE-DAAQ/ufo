@@ -10,6 +10,8 @@
 #include <vector>
 
 #include "ioda/ObsDataVector.h"
+#include "ioda/ObsSpace.h"
+#include "oops/util/Logger.h"
 #include "oops/util/missingValues.h"
 
 #include "ufo/GeoVaLs.h"
@@ -48,9 +50,6 @@ void ProfileLevelCount::compute(const ObsFilterData & in,
   // Ensure observations have been grouped into profiles.
   if (obsdb.obs_group_vars().empty())
     throw eckit::UserError("Group variables configuration is empty", Here());
-
-  // Number of locations.
-  const size_t nlocs = obsdb.nlocs();
 
   // Correspondence between record numbers and indices in the data sample.
   const std::vector<std::size_t> &recnums = obsdb.recidx_all_recnums();

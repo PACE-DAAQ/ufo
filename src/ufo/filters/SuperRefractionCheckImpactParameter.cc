@@ -31,8 +31,8 @@ namespace ufo {
 SuperRefractionCheckImpactParameter::SuperRefractionCheckImpactParameter(
                                  ioda::ObsSpace & obsdb,
                                  const Parameters_ & parameters,
-                                 std::shared_ptr<ioda::ObsDataVector<int> > flags,
-                                 std::shared_ptr<ioda::ObsDataVector<float> > obserr)
+                                 ioda::ObsDataVector<int> & flags,
+                                 ioda::ObsDataVector<float> & obserr)
   : FilterBase(obsdb, parameters, flags, obserr), parameters_(parameters)
 {
   oops::Log::trace() << "SuperRefractionCheckImpactParameter constructor" << std::endl;
@@ -109,9 +109,10 @@ void SuperRefractionCheckImpactParameter::applyFilter(
   const std::vector<size_t> & record_numbers = obsdb_.recidx_all_recnums();
 
   oops::Log::debug() << "Unique record numbers" << std::endl;
-  for (size_t iProfile : record_numbers)
+  for (size_t iProfile : record_numbers) {
     oops::Log::debug() << iProfile << ' ';
-    oops::Log::debug() << std::endl;
+  }
+  oops::Log::debug() << std::endl;
 
   // Loop over the unique profiles
   for (size_t iProfile : record_numbers) {
@@ -163,7 +164,7 @@ void SuperRefractionCheckImpactParameter::applyFilter(
       }
       for (size_t iVar = 0; iVar < filtervars.nvars(); ++iVar) {
         for (size_t iobs : obs_numbers) {
-          if (apply[iobs] &&  (*flags_)[iVar][iobs] == QCflags::pass &&
+          if (apply[iobs] &&  flags_[iVar][iobs] == QCflags::pass &&
               impactParameterObs[0][iobs] <= impactParameterModel[kLevel] &&
               kLevel > 0) {
             flagged[iVar][iobs] = true;
@@ -174,7 +175,7 @@ void SuperRefractionCheckImpactParameter::applyFilter(
     } else {  //  profileCheck = false
       for (size_t iVar = 0; iVar < filtervars.nvars(); ++iVar) {
         for (size_t iobs : obs_numbers) {
-          if (apply[iobs] &&  (*flags_)[iVar][iobs] == QCflags::pass) {
+          if (apply[iobs] &&  flags_[iVar][iobs] == QCflags::pass) {
             std::vector<float> refracProfile;
             std::vector<float> heightProfile;
             // count the number of valid levels of model profiles for iobs
@@ -220,10 +221,8 @@ std::vector<float> SuperRefractionCheckImpactParameter::calcImpactParameterModel
             float lat,
             float geoid,
             float radiusCurv) const {
-  const float missingFloat = util::missingValue<float>();
   std::vector<float> impactParameterModel;
   float geometricHeight;
-  float temp;
   for (size_t iLevel = 0; iLevel < geopotentialHeight.size(); ++iLevel) {
     geometricHeight = formulas::Geopotential_to_Geometric_Height(lat,
                                 geopotentialHeight[iLevel]+geoid);

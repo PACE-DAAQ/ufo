@@ -36,7 +36,6 @@ namespace ufo {
        profileDataHandler.get<float>(ufo::ProfileVariableNames::obs_dew_point_temperature);
     const std::vector <bool> &diagFlagsTTropopause =
        profileDataHandler.get<bool>(ufo::ProfileVariableNames::diagflags_tropo_t);
-    const std::vector <bool> &diagFlagsTFinalReject =
        profileDataHandler.get<bool>(ufo::ProfileVariableNames::diagflags_final_reject_t);
     std::vector <bool> &diagFlagsRHInterp =
        profileDataHandler.get<bool>(ufo::ProfileVariableNames::diagflags_interpolation_rh);
@@ -119,7 +118,10 @@ namespace ufo {
 
     // Look for errors at the top of cloud layers
 
-    const float RHThresh = options_.RHCheck_RHThresh.value();
+    const float RHThresh = options_.RHCheck_RHThresh.value().value_or(
+        0.75f * relativeHumidityAtSaturation());
+    const float MinRHThresh = options_.RHCheck_MinRHThresh.value().value_or(
+        0.75f * relativeHumidityAtSaturation());
     const float PressDiffAdjThresh = options_.RHCheck_PressDiffAdjThresh.value();
     for (int jlev = 1; jlev < NumLev; ++jlev) {
       if (Press_[jlev] < options_.RHCheck_PressThresh.value()) break;
@@ -134,7 +136,7 @@ namespace ufo {
           if (Press_[jlev] - Press_[klev] > PressDiffAdjThresh) break;
           MinRHabove = std::min(MinRHabove, rh_[klev]);
         }
-        if (MinRHabove < options_.RHCheck_MinRHThresh.value()) {
+        if (MinRHabove < MinRHThresh) {
           FlagH_[jlev] = 2;
           TotCProfs[0]++;
           oops::Log::debug() << " -> Error at top of cloud layer for level " << jlev << std::endl;
@@ -152,7 +154,8 @@ namespace ufo {
     // Simple check for sonde ascent too moist at high levels
     // Start at top and work down
 
-    const float SondeRHHiTol = options_.RHCheck_SondeRHHiTol.value();
+    const float SondeRHHiTol =
+        options_.RHCheck_SondeRHHiTol.value().value_or(0.0f);
 
     int NumLFlags = 0;
     int NumHFlags = 0;

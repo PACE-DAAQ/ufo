@@ -9,6 +9,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <complex>
 #include <iomanip>
 #include <iostream>
 #include <set>
@@ -17,6 +18,7 @@
 
 #include "ioda/ObsDataVector.h"
 #include "oops/util/IntSetParser.h"
+#include "oops/util/Logger.h"
 #include "oops/util/missingValues.h"
 #include "ufo/filters/ObsFilterData.h"
 #include "ufo/filters/Variable.h"
@@ -134,9 +136,10 @@ namespace ufo {
           float szen2 = 1.0f - czen2;
 
           // view angle to satellite accounting for Earth curvature
-          float orbit_height_frac = Constants::mean_earth_rad /
-                                   (Constants::mean_earth_rad + orbit_height);
-          float sinsatview = sin(satzenith_rad) * orbit_height_frac;
+          float mean_earth_rad_km = static_cast<float>(Constants::mean_earth_rad_m / 1000.0);
+          float orbit_height_frac = static_cast<float>(mean_earth_rad_km /
+                                   (mean_earth_rad_km + orbit_height) );
+          float sinsatview = std::sin(satzenith_rad) * orbit_height_frac;
           float snad2 = sinsatview * sinsatview;
           float cnad2 = 1.0f - snad2;
 
@@ -155,7 +158,7 @@ namespace ufo {
             std::complex<float> xperm(perm_real, perm_imag);
 
             // calculate complex reflection coefficients (and corrections)
-            std::complex<float> perm1 = sqrt(xperm - szen2);
+            std::complex<float> perm1 = std::sqrt(xperm - szen2);
             std::complex<float> perm2 = xperm * czen;
 
             std::complex<float> rhth = (czen - perm1) / (czen + perm1);

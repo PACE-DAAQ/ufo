@@ -1,5 +1,5 @@
 ! (C) Copyright 2025 Met Office
-! 
+!
 ! this software is licensed under the terms of the apache licence version 2.0
 ! which can be obtained at http://www.apache.org/licenses/license-2.0.
 
@@ -11,7 +11,7 @@ use, intrinsic :: iso_c_binding
 use fckit_configuration_module, only: fckit_configuration
 use logger_mod, only : oops_log
 use fckit_exception_module, only: fckit_exception
-use iso_c_binding
+use, intrinsic :: iso_c_binding
 use kinds
 use missing_values_mod
 use obsspace_mod
@@ -53,6 +53,8 @@ type, public :: ufo_refractivityonedvarcheck
   logical                   :: pseudo_ops        !< Whether to use pseudo levels in forward operator
   logical                   :: vert_interp_ops   !< Whether to use ln(p) or exner in vertical interpolation
   real(kind_real)           :: min_temp_grad     !< The minimum vertical temperature gradient allowed
+  real(kind_real)           :: dryRefractivityConstant !< Dry refractivity constant
+  real(kind_real)           :: wetRefractivityConstant !< Wet refractivity constant
   type(rmatrix_type), allocatable :: Rmatrix_list(:) !< All the R matrices read in from the file
   integer                   :: r_num_sats        !< The number of R matrices in the list
 end type ufo_refractivityonedvarcheck
@@ -85,6 +87,8 @@ subroutine ufo_refractivityonedvarcheck_create( &
   y_test, &
   minval_ytest, &
   maxval_ytest, &
+  dryRefractivityConstant, &
+  wetRefractivityConstant, &
   onedvarflag &
 )
 
@@ -105,6 +109,8 @@ subroutine ufo_refractivityonedvarcheck_create( &
   real(c_float), intent(in)                   :: y_test            !< Threshold on distance between observed and solution refractivities
   real(c_float), intent(in)                   :: minval_ytest      !< Minimum value for RHS of y-test
   real(c_float), intent(in)                   :: maxval_ytest      !< Maximum value for RHS of y-test
+  real(c_float), intent(in)                   :: dryRefractivityConstant !< Dry refractivity constant
+  real(c_float), intent(in)                   :: wetRefractivityConstant !< Wet refractivity constant
   integer(c_int), intent(in)                  :: onedvarflag       !< flag for qc manager
 
   character(len=800) :: message
@@ -127,37 +133,43 @@ subroutine ufo_refractivityonedvarcheck_create( &
   self % y_test = y_test
   self % minval_ytest = minval_ytest
   self % maxval_ytest = maxval_ytest
+  self % dryRefractivityConstant = dryRefractivityConstant
+  self % wetRefractivityConstant = wetRefractivityConstant
 
-  write(message, '(A)') 'GNSS-RO 1D-Var check: input parameters are:'
+  write(message, "(A)") "GNSS-RO 1D-Var check: input parameters are:"
   call oops_log % debug(message)
-  write(message, '(2A)') 'bmatrix_filename = ', bmatrix_filename
+  write(message, "(2A)") "bmatrix_filename = ", bmatrix_filename
   call oops_log % debug(message)
-  write(message, '(A,L1)') 'capsupersat = ', capsupersat
+  write(message, "(A,L1)") "capsupersat = ", capsupersat
   call oops_log % debug(message)
-  write(message, '(A,F16.8)') 'cost_funct_test = ', cost_funct_test
+  write(message, "(A,F16.8)") "cost_funct_test = ", cost_funct_test
   call oops_log % debug(message)
-  write(message, '(A,F16.8)') 'Delta_ct2 = ', Delta_ct2
+  write(message, "(A,F16.8)") "Delta_ct2 = ", Delta_ct2
   call oops_log % debug(message)
-  write(message, '(A,F16.8)') 'Delta_factor = ', Delta_factor
+  write(message, "(A,F16.8)") "Delta_factor = ", Delta_factor
   call oops_log % debug(message)
-  write(message, '(A,F16.8)') 'min_temp_grad = ', min_temp_grad
+  write(message, "(A,F16.8)") "min_temp_grad = ", min_temp_grad
   call oops_log % debug(message)
-  write(message, '(A,I7)') 'n_iteration_test = ', n_iteration_test
+  write(message, "(A,I7)") "n_iteration_test = ", n_iteration_test
   call oops_log % debug(message)
-  write(message, '(A,F16.8)') 'OB_test = ', OB_test
+  write(message, "(A,F16.8)") "OB_test = ", OB_test
   call oops_log % debug(message)
-  write(message, '(A,L1)') 'pseudo_ops = ', pseudo_ops
+  write(message, "(A,L1)") "pseudo_ops = ", pseudo_ops
   call oops_log % debug(message)
-  write(message, '(A,L1)') 'vert_interp_ops = ', vert_interp_ops
+  write(message, "(A,L1)") "vert_interp_ops = ", vert_interp_ops
   call oops_log % debug(message)
-  write(message, '(A,F16.8)') 'y_test = ', y_test
+  write(message, "(A,F16.8)") "y_test = ", y_test
   call oops_log % debug(message)
-  write(message, '(A,F16.8)') 'minval_ytest = ', minval_ytest
+  write(message, "(A,F16.8)") "minval_ytest = ", minval_ytest
   call oops_log % debug(message)
-  write(message, '(A,F16.8)') 'maxval_ytest = ', maxval_ytest
+  write(message, "(A,F16.8)") "maxval_ytest = ", maxval_ytest
+  call oops_log % debug(message)
+  write(message, "(A,F16.8)") "dryRefractivityConstant = ", dryRefractivityConstant
+  call oops_log % debug(message)
+  write(message, "(A,F16.8)") "wetRefractivityConstant = ", wetRefractivityConstant
   call oops_log % debug(message)
 
-  write(message, '(2A)') 'Attempting to read rmatrix file: ', TRIM(rmatrix_filename)
+  write(message, "(2A)") "Attempting to read rmatrix file: ", TRIM(rmatrix_filename)
   call oops_log % debug(message)
 
 ! Read in R matrix data
@@ -185,9 +197,9 @@ end subroutine ufo_refractivityonedvarcheck_delete
 ! ------------------------------------------------------------------------------
 !> The main routine that applys the GNSS-RO onedvar filter
 !!
-!! \details Heritage : 
+!! \details Heritage :
 !!
-!! This routine is called from the c++ apply method.  The filter performs 
+!! This routine is called from the c++ apply method.  The filter performs
 !! a 1D-Var minimization
 !!
 !! \author Met Office
@@ -253,8 +265,8 @@ subroutine ufo_refractivityonedvarcheck_apply(self, geovals, apply)
   real(kind_real), allocatable       :: final_cost(:)         ! Final cost-function value
   real(kind_real), allocatable       :: dfs_list(:)           ! Degrees of freedom for signal
 
-  write(Message,*) "TRACE: ufo_refractivityonedvarcheck_refractivityonedvarcheck_apply: begin"
-  call oops_log % debug(Message)
+  write(Message,*) "ufo_refractivityonedvarcheck_refractivityonedvarcheck_apply: begin"
+  call oops_log % trace(Message)
 
   ! Get the obs-space information
   nobs = obsspace_get_nlocs(self % obsdb)
@@ -320,7 +332,7 @@ subroutine ufo_refractivityonedvarcheck_apply(self, geovals, apply)
 
   call Ops_RealSortQuick(sort_key, index_vals)
   call find_unique(record_number, unique)
-  WRITE (Message, '(A,I0)') 'Number of unique profiles ', size(unique)
+  WRITE (Message, "(A,I0)") "Number of unique profiles ", size(unique)
   call oops_log % debug(Message)
 
   ! For every profile that we have found, perform a 1DVar minimisation
@@ -328,15 +340,15 @@ subroutine ufo_refractivityonedvarcheck_apply(self, geovals, apply)
   do iprofile = 1, size(unique)
     start_point = current_point
     iobs = index_vals(start_point)
-    WRITE (Message, '(A,I0)') 'ObNumber ', iprofile
+    WRITE (Message, "(A,I0)") "ObNumber ", iprofile
     call oops_log % info(Message)
-    WRITE (Message, '(A,F12.2)') 'Latitude ', obsLat(iobs)
+    WRITE (Message, "(A,F12.2)") "Latitude ", obsLat(iobs)
     call oops_log % info(Message)
-    WRITE (Message, '(A,F12.2)') 'Longitude ', obsLon(iobs)
+    WRITE (Message, "(A,F12.2)") "Longitude ", obsLon(iobs)
     call oops_log % info(Message)
-    WRITE (Message, '(A,I0)') 'Processing centre ', obsOrigC(iobs)
+    WRITE (Message, "(A,I0)") "Processing centre ", obsOrigC(iobs)
     call oops_log % info(Message)
-    WRITE (Message, '(A,I0)') 'Sat ID ', obsSatid(iobs)
+    WRITE (Message, "(A,I0)") "Sat ID ", obsSatid(iobs)
     call oops_log % info(Message)
 
     ! Work out which observations belong to the current profile
@@ -351,7 +363,7 @@ subroutine ufo_refractivityonedvarcheck_apply(self, geovals, apply)
     Back % zb(:) = theta_heights % vals(q%nval:1:-1, iobs)
     Back % p(:) = prs % vals(prs % nval:1:-1, iobs)
     Back % q(:) = q % vals(q%nval:1:-1, iobs)
-    
+
     ! Allocate the observations structure
     nobs_profile = current_point - start_point
     call allocate_singlerefob(Ob, nobs_profile, prs % nval, q % nval)
@@ -409,6 +421,8 @@ subroutine ufo_refractivityonedvarcheck_apply(self, geovals, apply)
       self % minval_ytest,     &   ! Minimum value for RHS of y-test
       self % maxval_ytest,     &   ! Maximum value for RHS of y-test
       self % capsupersat,      &   ! Whether to remove super-saturation
+      self % dryRefractivityConstant, & ! Dry refractivity constant
+      self % wetRefractivityConstant, & ! Wet refractivity constant
       BAerr,                   &   ! Whether there are errors in the refractivity calculation
       Tb,                      &   ! Calculated background temperature
       Ts,                      &   ! 1DVar solution temperature
@@ -418,22 +432,22 @@ subroutine ufo_refractivityonedvarcheck_apply(self, geovals, apply)
 
     ! Flag bad profiles
     do ipoint = 0, nobs_profile-1
-      if (qc_flags(start_point + ipoint) > 0) then
+      if (qc_flags(index_vals(start_point + ipoint)) > 0) then
         ! Do nothing, since the data are already flagged
       else if (Ob % refractivity(ipoint+1) % PGEFinal > 0.5) then
-        qc_flags(start_point + ipoint) = self % onedvarflag
+        qc_flags(index_vals(start_point + ipoint)) = self % onedvarflag
         Ob % qc_flags(ipoint+1) = self % onedvarflag
       end if
     end do
 
     if (verboseOutput) then
       do ipoint = 0, nobs_profile-1, 20
-          write(Message,'(20I5)') qc_flags( &
+          write(Message,"(20I5)") qc_flags( &
               index_vals(start_point+ipoint:min(start_point+ipoint+19, current_point-1)))
           call oops_log % debug(Message)
       end do
       do ipoint = 0, nobs_profile-1, 10
-          write(Message,'(10E16.5)') obs_refractivity( &
+          write(Message,"(10E16.5)") obs_refractivity( &
               index_vals(start_point+ipoint:min(start_point+ipoint+9, current_point-1)))
           call oops_log % debug(Message)
       end do
@@ -460,8 +474,8 @@ subroutine ufo_refractivityonedvarcheck_apply(self, geovals, apply)
   call obsspace_put_db(self % obsdb, "OneDVarDiags", "finalCost", final_cost)
   call obsspace_put_db(self % obsdb, "OneDVarDiags", "DFS", dfs_list)
 
-  write(Message,*) "TRACE: ufo_refractivityonedvarcheck_refractivityonedvarcheck_apply: begin"
-  call oops_log % debug(Message)
+  write(Message,*) "ufo_refractivityonedvarcheck_refractivityonedvarcheck_apply: complete"
+  call oops_log % trace(Message)
 
 end subroutine ufo_refractivityonedvarcheck_apply
 

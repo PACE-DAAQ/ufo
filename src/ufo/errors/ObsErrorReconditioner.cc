@@ -4,9 +4,13 @@
  * This software is licensed under the terms of the Apache Licence Version 2.0
  * which can be obtained at http://www.apache.org/licenses/LICENSE-2.0.
  */
+#include <Eigen/Dense>
+
 #include <vector>
 
 #include "ufo/errors/ObsErrorReconditioner.h"
+
+#include "oops/util/Logger.h"
 
 namespace ufo {
 
@@ -16,6 +20,7 @@ ObsErrorReconditionerMethodParameterTraitsHelper::namedValues[];
 
 ObsErrorReconditioner::ObsErrorReconditioner(const Parameters_ & params)
   : params_(params) {
+  oops::Log::trace() << "ObsErrorReconditioner::ObsErrorReconditioner starting" << std::endl;
   // Checking valid reconditioning options if reconditioning specified.
   ufo::ObsErrorReconditionerMethod recon_method = params_.ReconMethod.value();
   size_t nvalid_options = 0;
@@ -44,10 +49,12 @@ ObsErrorReconditioner::ObsErrorReconditioner(const Parameters_ & params)
       break;
     case ufo::ObsErrorReconditionerMethod::NORECONDITIONING:
       oops::Log::trace() << "'No reconditioning' option selected, "
+                            "for advanced reconditioning; "
                             "recondition method can be tested, "
                             "R matrix should not change.\n";
       break;
   }
+  oops::Log::trace() << "ObsErrorReconditioner::ObsErrorReconditioner finished" << std::endl;
 }  // ObsErrorReconditioner::ObsErrorReconditioner
 
 void ObsErrorReconditioner::recondition(Eigen::MatrixXd & R) const {
@@ -61,8 +68,7 @@ void ObsErrorReconditioner::recondition(Eigen::MatrixXd & R) const {
 
     // Check square matrix
     size_t nrows = R.rows();
-    size_t ncols = R.cols();
-    assert(nrows == ncols);
+    assert(nrows == R.cols());
 
     // Performing eigendecomposition
     oops::Log::trace() << "R before reconditioning:\n" << R << std::endl << std::endl;
@@ -77,7 +83,7 @@ void ObsErrorReconditioner::recondition(Eigen::MatrixXd & R) const {
       oops::Log::debug() << "eval_min = " << eval_min
                          << " , performing a ridge regression to ensure positive definiteness\n";
       double alpha = 1.0 + 1e-15;
-      alpha = (eval_min == 0.0) ? alpha - 1.0 : alpha * abs(eval_min);
+      alpha = (eval_min == 0.0) ? alpha - 1.0 : alpha * std::abs(eval_min);
       for (size_t jvar = 0; jvar < nrows; ++jvar) {
           evals[jvar] += alpha;
       }
