@@ -8,7 +8,6 @@
 #ifndef UFO_FILTERS_PROFILEBACKGROUNDCHECK_H_
 #define UFO_FILTERS_PROFILEBACKGROUNDCHECK_H_
 
-#include <memory>
 #include <ostream>
 #include <string>
 #include <vector>
@@ -17,8 +16,6 @@
 #include "oops/util/parameters/OptionalParameter.h"
 #include "ufo/filters/FilterBase.h"
 #include "ufo/filters/QCflags.h"
-#include "ufo/filters/Variable.h"
-#include "ufo/utils/parameters/ParameterTraitsVariable.h"
 
 namespace ioda {
   template <typename DATATYPE> class ObsDataVector;
@@ -59,8 +56,8 @@ class ProfileBackgroundCheck : public FilterBase,
   static const std::string classname() {return "ufo::ProfileBackgroundCheck";}
 
   ProfileBackgroundCheck(ioda::ObsSpace &, const Parameters_ &,
-                  std::shared_ptr<ioda::ObsDataVector<int> >,
-                  std::shared_ptr<ioda::ObsDataVector<float> >);
+                         ioda::ObsDataVector<int> &,
+                         ioda::ObsDataVector<float> &);
   ~ProfileBackgroundCheck();
 
  private:

@@ -103,7 +103,7 @@ character(len=MAXVARLEN), public, parameter :: var_sfc_soiltyp = "soil_type"
 character(len=MAXVARLEN), public, parameter :: var_geomz       = "height_above_mean_sea_level"
 character(len=MAXVARLEN), public, parameter :: var_sfc_geomz   = "height_above_mean_sea_level_at_surface"
 character(len=MAXVARLEN), public, parameter :: var_sfc_rough   = "surface_roughness_length"
-character(len=MAXVARLEN), public, parameter :: var_sfc_fact10  = "wind_reduction_factor_at_10m"
+character(len=MAXVARLEN), public, parameter :: var_sfc_fact10  = "ratio_of_wind_at_surface_adjacent_layer_to_wind_at_10m"
 character(len=MAXVARLEN), public, parameter :: var_observable_domain_mask = "observable_domain_mask"
 character(len=MAXVARLEN), public, parameter :: var_sfc_emiss   = "surface_emissivity"
 character(len=MAXVARLEN), public, parameter :: var_sfc_sss     = "sea_surface_salinity"
@@ -132,9 +132,9 @@ character(len=MAXVARLEN), public, parameter :: var_rh          = "relative_humid
 character(len=MAXVARLEN), public, parameter :: var_sfc_landmask   = "landmask"       ! 0 (sea), 1 (land)
 character(len=MAXVARLEN), public, parameter :: var_sfc_seaicefrac = "seaice_fraction"
 
-character(len=MAXVARLEN), public :: var_seaicefrac      = "sea_ice_category_area_fraction"
-character(len=MAXVARLEN), public :: var_seaicethick     = "sea_ice_category_thickness"
-character(len=MAXVARLEN), public :: var_seaicesnowthick = "sea_ice_category_snow_thickness"
+character(len=MAXVARLEN), public :: var_seaicefrac      = "sea_ice_area_fraction"
+character(len=MAXVARLEN), public :: var_seaicethick     = "sea_ice_thickness"
+character(len=MAXVARLEN), public :: var_seaicesnowthick = "sea_ice_snow_thickness"
 character(len=MAXVARLEN), public :: var_ocn_chl         = "mass_concentration_of_chlorophyll_in_sea_water"
 character(len=MAXVARLEN), public :: var_abs_topo        = "sea_surface_height_above_geoid"
 character(len=MAXVARLEN), public :: var_ocn_pot_temp    = "sea_water_potential_temperature"
@@ -214,7 +214,7 @@ character(len=maxvarlen), dimension(n_aerosols_gocart_gefs), public, parameter :
 character(len=maxvarlen), dimension(n_aerosols_gocart_ufs), public, parameter :: &
      &var_aerosols_gocart_ufs = [&
      &var_sulfate,&
-     &var_bcphobic, var_bcphilic, var_ocphobic, var_ocphilic,& 
+     &var_bcphobic, var_bcphilic, var_ocphobic, var_ocphilic,&
      &var_du001, var_du002, var_du003, var_du004, var_du005,&
      &var_ss001, var_ss002, var_ss003, var_ss004, var_ss005,&
      &var_no3an1, var_no3an2, var_no3an3]
@@ -259,14 +259,13 @@ if (f_vars%has("nvars")) then
   read(str,*) vars
 else
   allocate(vars(0))
-endif
+end if
 
 end subroutine ufo_vars_read
 
 ! ------------------------------------------------------------------------------
 
 integer function ufo_vars_getindex(vars, varname)
-use ufo_utils_mod, only: cmp_strings
 implicit none
 character(len=*), intent(in) :: vars(:)
 character(len=*), intent(in) :: varname
@@ -276,11 +275,11 @@ integer :: ivar
 ufo_vars_getindex = -1
 
 do ivar = 1, size(vars)
-  if (cmp_strings(vars(ivar), varname)) then
+  if (vars(ivar) == varname) then
     ufo_vars_getindex = ivar
     exit
-  endif
-enddo
+  end if
+end do
 
 end function ufo_vars_getindex
 

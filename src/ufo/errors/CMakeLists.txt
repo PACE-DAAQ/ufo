@@ -4,10 +4,18 @@
 # which can be obtained at http://www.apache.org/licenses/LICENSE-2.0.
 
 set ( errors_files
+    ObsError.cc
+    ObsError.h
+    ObsErrorBase.cc
+    ObsErrorBase.h
     ObsErrorCrossVarCov.cc
     ObsErrorCrossVarCov.h
     ObsErrorDiagonal.cc
     ObsErrorDiagonal.h
+    ObsErrorDiagonalInvGamma.cc
+    ObsErrorDiagonalInvGamma.h
+    ObsErrorDiffusion.cc
+    ObsErrorDiffusion.h
     ObsErrorParametersBase.h
     ObsErrorReconditioner.cc
     ObsErrorReconditioner.h

@@ -1,4 +1,4 @@
-! (C) Copyright 2018 UCAR
+! (C) Copyright 2018-2026 UCAR
 !
 ! This software is licensed under the terms of the Apache Licence Version 2.0
 ! which can be obtained at http://www.apache.org/licenses/LICENSE-2.0.
@@ -10,7 +10,7 @@ MODULE ufo_crtm_utils_mod
 use fckit_configuration_module, only: fckit_configuration
 use fckit_exception_module, only: fckit_exception
 use fckit_mpi_module,   only: fckit_mpi_comm
-use iso_c_binding
+use, intrinsic :: iso_c_binding
 use kinds
 
 use crtm_module
@@ -20,7 +20,6 @@ use ufo_vars_mod
 use ufo_ghg_utils_mod, only: co2_mauna_loa_rise
 use obsspace_mod
 use ufo_constants_mod, only: kg_to_g, co2_rescale_to_ppmv, co2_ppmv_value, midpoint_julday
-use ufo_utils_mod, only: cmp_strings
 use CRTM_SpcCoeff, only: CRTM_SpcCoeff_Load, SC
 
 implicit none
@@ -28,12 +27,14 @@ private
 
 public crtm_comm_stat_check
 public crtm_conf
+public nullify_jac_channels_type
 public crtm_conf_setup
 public crtm_conf_delete
 public get_var_name
 public Load_Atm_Data
 public Load_Sfc_Data
 public Load_Geom_Data
+public crtm_pressure_is_monotonic
 public ufo_crtm_skip_profiles
 
 PUBLIC Load_Aerosol_Data
@@ -62,6 +63,11 @@ REAL(kind_real), PARAMETER :: &
 
 integer, parameter, public :: max_string=800
 real(kind_real), parameter  :: threshold_reflectivity = 100.0
+
+!Type to hold the list of channels to zero for one nullify jacobian params entry
+type nullify_jac_channels_type
+ integer, allocatable :: channels(:)
+end type nullify_jac_channels_type
 
 !Type for general config
 type crtm_conf
@@ -98,11 +104,17 @@ type crtm_conf
  real(kind_real) :: co2_rescale_to_ppmv = co2_rescale_to_ppmv
  real(kind_real) :: co2_ppmv_value = co2_ppmv_value
  real(kind_real) :: midpoint_julday = midpoint_julday
+ ! nullifyJacVars(i) is zeroed for channels in nullifyJacChannels(i)%channels
+ character(len=MAXVARLEN), allocatable :: nullifyJacVars(:)
+ type(nullify_jac_channels_type), allocatable :: nullifyJacChannels(:)
  logical :: Cloud_Seeding = .false.
  logical :: cal_cloud_frac_in_fov = .false.
  logical :: cal_cloud_reff_in_fov  = .false.
  logical :: precip_hydro = .false.
  logical :: flag_deep_conv_mass_flux = .true.
+ logical :: read_Cmatrix = .false.
+ character(len=max_string) :: Cmatrix_path
+ integer :: n_profilelevels = 1
 end type crtm_conf
 
 
@@ -227,21 +239,41 @@ END INTERFACE qsmith
 
  character(len=MAXVARLEN), parameter :: &
       CRTM_Surfaces(7) = &
-         [  character(len=MAXVARLEN):: 'Water_Temperature', 'Land_Temperature', 'Ice_Temperature', &
-                                       'Snow_Temperature', 'Wind_Speed', &
-                                       'Wind_Direction', 'Salinity' ]
+         [  character(len=MAXVARLEN):: "Water_Temperature", "Land_Temperature", "Ice_Temperature", &
+                                       "Snow_Temperature", "Wind_Speed", &
+                                       "Wind_Direction", "Salinity" ]
 
  character(len=MAXVARLEN), parameter :: &
-      ValidSurfaceWindGeoVars(2) = [character(len=MAXVARLEN) :: 'vector', 'uv']
+      ValidSurfaceWindGeoVars(2) = [character(len=MAXVARLEN) :: "vector", "uv"]
 
  character(len=MAXVARLEN), parameter :: &
-      ValidCO2AbsorberMethod(3) = [character(len=MAXVARLEN) :: 'Background', &
-                                                               'EternalConstant', &
-                                                               'MaunaLoa']
+      ValidCO2AbsorberMethod(3) = [character(len=MAXVARLEN) :: "Background", &
+                                                               "EternalConstant", &
+                                                               "MaunaLoa"]
 
 
 
 contains
+
+! ------------------------------------------------------------------------------
+
+logical function crtm_pressure_is_monotonic(atm)
+
+implicit none
+
+type(CRTM_Atmosphere_type), intent(in) :: atm
+
+integer :: jlevel
+
+ crtm_pressure_is_monotonic = .true.
+ do jlevel = atm%n_layers, 1, -1
+   if (atm%level_pressure(jlevel) <= atm%level_pressure(jlevel-1)) then
+     crtm_pressure_is_monotonic = .false.
+     return
+   end if
+ end do
+
+end function crtm_pressure_is_monotonic
 
 ! ------------------------------------------------------------------------------
 
@@ -255,17 +287,21 @@ type(fckit_configuration),      intent(in)    :: f_confOper
 integer(c_int64_t),             intent(in)    :: midPointJulday
 type(fckit_mpi_comm), optional, intent(in)    :: comm
 
-character(*), parameter :: routine_name = 'crtm_conf_setup'
+character(*), parameter :: routine_name = "crtm_conf_setup"
 character(len=255) :: IRwaterCoeff, VISwaterCoeff, &
                       IRVISlandCoeff, IRVISsnowCoeff, IRVISiceCoeff, &
                       MWwaterCoeff
+! To save the value read from yaml, since Cloud_Fraction is derived from Obs Opearator and used for Linear Obs Operator too.
+real(kind_real), save :: cloudFraction = -1.0_kind_real
 integer :: jspec, ivar
 character(len=max_string) :: message
 character(len=:), allocatable :: str
 character(len=:), allocatable :: str_array(:)
+integer, allocatable :: int_array(:)
+type(fckit_configuration), allocatable :: nullifyJacParams_confs(:)
 
 character(len=maxvarlen), allocatable :: var_aerosols(:)
-logical :: message_flag = .true.
+logical, save :: message_flag = .true.
 character(max_string) :: cloud_fract_method
 character(max_string) :: cloud_reff_method
 
@@ -281,14 +317,15 @@ character(max_string) :: cloud_reff_method
  ! Set print rank
  ! --------------
  if (present(comm)) then
-   if (comm%rank() .ne. 0) message_flag = .false.
- endif
+   if (comm%rank() /= 0) message_flag = .false.
+ end if
 
  ! Absorbers
  !----------
  conf%n_Absorbers = 0
- if (f_confOper%has("Absorbers")) &
+ if (f_confOper%has("Absorbers")) then
    conf%n_Absorbers = conf%n_Absorbers + f_confOper%get_size("Absorbers")
+ end if
 
  allocate( conf%Absorbers     ( conf%n_Absorbers ), &
            conf%Absorber_Id   ( conf%n_Absorbers ), &
@@ -302,7 +339,7 @@ character(max_string) :: cloud_reff_method
  ! check for duplications
  do jspec = 2, conf%n_Absorbers
    if ( any(conf%Absorbers(jspec-1) == conf%Absorbers(jspec:conf%n_Absorbers)) ) then
-     write(message,*) trim(ROUTINE_NAME),' error: ',trim(conf%Absorbers(jspec)),' is duplicated in Absorbers'
+     write(message,*) trim(ROUTINE_NAME)," error: ",trim(conf%Absorbers(jspec))," is duplicated in Absorbers"
      call fckit_exception % throw(message)
    end if
  end do
@@ -311,7 +348,7 @@ character(max_string) :: cloud_reff_method
  do jspec = 1, conf%n_Absorbers
    ivar = ufo_vars_getindex(CRTM_Absorbers, conf%Absorbers(jspec))
    if (ivar < 1 .or. ivar > size(UFO_Absorbers)) then
-     write(message,*) trim(ROUTINE_NAME),' error: ',trim(conf%Absorbers(jspec)),' not supported by UFO_Absorbers'
+     write(message,*) trim(ROUTINE_NAME)," error: ",trim(conf%Absorbers(jspec))," not supported by UFO_Absorbers"
      call fckit_exception % throw(message)
    end if
    conf%Absorbers(jspec) = UFO_Absorbers(ivar)
@@ -325,24 +362,25 @@ character(max_string) :: cloud_reff_method
  ! Clouds
  !-------
  conf%n_Clouds = 0
- if (f_confOper%has("Clouds")) &
+ if (f_confOper%has("Clouds")) then
    conf%n_Clouds = f_confOper%get_size("Clouds")
+ end if
  allocate( conf%Clouds  ( conf%n_Clouds,2), &
            conf%Cloud_Id( conf%n_Clouds ) )
  if (conf%n_Clouds > 0) then
    if (f_confOper%has("method for cloud fraction within fov")) then
      call f_confOper%get_or_die("method for cloud fraction within fov",str)
      cloud_fract_method = str
-     if (cmp_strings(cloud_fract_method,'thompson') .or. &
-             cmp_strings(cloud_fract_method,'Thompson')) then
+     if (cloud_fract_method == "thompson" .or. &
+             cloud_fract_method == "Thompson") then
        conf%cal_cloud_frac_in_fov = .true.
        !  Get scale-aware mass-flux deep conv scheme flag used in calculating
        !  cloud fraction by the Thompson method
        if (f_confOper%has("convection_mass_flux_flag")) then
          call f_confOper%get_or_die("convection_mass_flux_flag",conf%flag_deep_conv_mass_flux)
        end if
-     else if (.not. cmp_strings(cloud_fract_method,'none')) then
-       write(message,*) trim(ROUTINE_NAME),' error: ' // &
+     else if (cloud_fract_method /= "none") then
+       write(message,*) trim(ROUTINE_NAME)," error: " // &
                         ' "method for cloud fraction within fov"' // &
                         ' can only be "thompson", "Thompson", or "none".'
        call fckit_exception % throw(message)
@@ -351,11 +389,11 @@ character(max_string) :: cloud_reff_method
    if (f_confOper%has("method for hydrometeor effective radii within fov")) then
      call f_confOper%get_or_die("method for hydrometeor effective radii within fov",str)
      cloud_reff_method = str
-     if (cmp_strings(cloud_reff_method,'thompson') .or. &
-             cmp_strings(cloud_reff_method,'Thompson')) then
+     if (cloud_reff_method == "thompson" .or. &
+             cloud_reff_method == "Thompson") then
        conf%cal_cloud_reff_in_fov = .true.
-     else if (.not. cmp_strings(cloud_reff_method,'none')) then
-       write(message,*) trim(ROUTINE_NAME),' error: ' // &
+     else if (cloud_reff_method /= "none") then
+       write(message,*) trim(ROUTINE_NAME)," error: " // &
                         ' "method for hydrometeor effective radii within fov"' // &
                         ' can only be "thompson", "Thompson", or "none".'
        call fckit_exception % throw(message)
@@ -367,24 +405,26 @@ character(max_string) :: cloud_reff_method
    if (f_confOper%has("Cloud_Fraction")) then
      if (conf%cal_cloud_frac_in_fov) then
        message = trim(ROUTINE_NAME) // &
-           ': Cloud_Fraction input is ignored since it will be calculated within UFO.'
+           ": Cloud_Fraction input is ignored since it will be calculated within UFO."
        if (message_flag) CALL Display_Message(ROUTINE_NAME, TRIM(message), WARNING )
      else
        call f_confOper%get_or_die("Cloud_Fraction",conf%Cloud_Fraction)
+       cloudFraction = conf%Cloud_Fraction ! saving from Yaml file to be used for linear-obs-operator
        if ( conf%Cloud_Fraction < 0.0 .or. &
             conf%Cloud_Fraction > 1.0 ) then
-         write(message,*) trim(ROUTINE_NAME),' error: must specify ' // &
-                          ' 0.0 <= Cloud_Fraction <= 1.0' // &
-                          ' or remove Cloud_Fraction from conf' // &
-                          ' and provide as a geoval'
+         write(message,*) trim(ROUTINE_NAME)," error: must specify " // &
+                          " 0.0 <= Cloud_Fraction <= 1.0" // &
+                          " or remove Cloud_Fraction from conf" // &
+                          " and provide as a geoval"
          call fckit_exception % throw(message)
        end if
      end if
    else
-     if (.not. conf%cal_cloud_frac_in_fov .and. conf%n_Clouds > 0) then
+     ! If Cloud_Fraction is not provided as parameter in Obs Operator then provide warning
+     if (.not. conf%cal_cloud_frac_in_fov .and. conf%n_Clouds > 0 .and. cloudFraction <= 0.0) then
        message = trim(ROUTINE_NAME) // &
-               ': Cloud_Fraction is not provided in conf.' // &
-               ' Will request as a geoval.'
+               ": Cloud_Fraction is not provided in conf." // &
+               " Will request as a geoval."
        if (message_flag) CALL Display_Message(ROUTINE_NAME, TRIM(message), WARNING )
      end if
    end if
@@ -395,7 +435,7 @@ character(max_string) :: cloud_reff_method
      if (message_flag) CALL Display_Message(ROUTINE_NAME, TRIM(message), WARNING )
      if (conf%flag_deep_conv_mass_flux) then
        message = trim(ROUTINE_NAME) // &
-           ': convection_mass_flux_flag is TRUE for '// &
+           ": convection_mass_flux_flag is TRUE for "// &
            '"method for cloud fraction within fov: "' // trim(cloud_fract_method)// '".'
        if (message_flag) CALL Display_Message(ROUTINE_NAME, TRIM(message), WARNING )
      end if
@@ -403,18 +443,18 @@ character(max_string) :: cloud_reff_method
    if (f_confOper%has("Cloud_Seeding")) then
      call f_confOper%get_or_die("Cloud_Seeding",conf%Cloud_Seeding)
      if ( conf%Cloud_Seeding ) then
-       write(message,*) trim(ROUTINE_NAME),' Cloud Seeding is activated '
+       write(message,*) trim(ROUTINE_NAME)," Cloud Seeding is activated "
      else
-       write(message,*) trim(ROUTINE_NAME),' Cloud Seeding is not activated '
-     endif
+       write(message,*) trim(ROUTINE_NAME)," Cloud Seeding is not activated "
+     end if
    end if
  end if
 
  ! check for duplications
  do jspec = 2, conf%n_Clouds
    if ( any(conf%Clouds(jspec-1,1) == conf%Clouds(jspec:conf%n_Clouds,1)) ) then
-     write(message,*) trim(ROUTINE_NAME),' error: ',trim(conf%Clouds(jspec,1)), &
-                      ' is duplicated in Clouds'
+     write(message,*) trim(ROUTINE_NAME)," error: ",trim(conf%Clouds(jspec,1)), &
+                      " is duplicated in Clouds"
      call fckit_exception % throw(message)
    end if
  end do
@@ -423,7 +463,7 @@ character(max_string) :: cloud_reff_method
  do jspec = 1, conf%n_Clouds
    ivar = ufo_vars_getindex(CRTM_Clouds, conf%Clouds(jspec,1))
    if (ivar < 1 .or. ivar > size(UFO_Clouds)) then
-     write(message,*) trim(ROUTINE_NAME),' error: ',trim(conf%Clouds(jspec,1)),' not supported by UFO_Clouds'
+     write(message,*) trim(ROUTINE_NAME)," error: ",trim(conf%Clouds(jspec,1))," not supported by UFO_Clouds"
      call fckit_exception % throw(message)
    end if
 
@@ -434,6 +474,11 @@ character(max_string) :: cloud_reff_method
      conf%precip_hydro = .true.
    end if
  end do
+
+ !Get Lidar levels
+ if (f_confOper%has("nProfileLevels")) then
+     call f_confOper%get_or_die("nProfileLevels", conf%n_profilelevels)
+ end if
 
  ! Aerosols
  !---------
@@ -446,14 +491,15 @@ character(max_string) :: cloud_reff_method
  ELSE
     conf%n_Aerosols  = 0
     conf%aerosol_option = ""
- ENDIF
+ END IF
  call f_confOpts%get_or_die("model units coeff", conf%unit_coef)
 
  ! Surface variables
  !----------
  conf%n_Surfaces = 0
- if (f_confOper%has("Surfaces")) &
+ if (f_confOper%has("Surfaces")) then
    conf%n_Surfaces = conf%n_Surfaces + f_confOper%get_size("Surfaces")
+ end if
 
  allocate( conf%Surfaces    ( conf%n_Surfaces ))
 
@@ -465,7 +511,7 @@ character(max_string) :: cloud_reff_method
  ! check for duplications
  do jspec = 2, conf%n_Surfaces
    if ( any(conf%Surfaces(jspec-1) == conf%Surfaces(jspec:conf%n_Surfaces)) ) then
-     write(message,*) 'crtm_conf_setup error: ',trim(conf%Surfaces(jspec)),' is duplicated in Surfaces'
+     write(message,*) "crtm_conf_setup error: ",trim(conf%Surfaces(jspec))," is duplicated in Surfaces"
      call fckit_exception % throw(message)
    end if
  end do
@@ -474,7 +520,7 @@ character(max_string) :: cloud_reff_method
  do jspec = 1, conf%n_Surfaces
    ivar = ufo_vars_getindex(CRTM_Surfaces, conf%Surfaces(jspec))
    if (ivar < 1 .or. ivar > size(UFO_Surfaces)) then
-     write(message,*) 'crtm_conf_setup error: ',trim(conf%Surfaces(jspec)),' not supported by UFO_Surfaces'
+     write(message,*) "crtm_conf_setup error: ",trim(conf%Surfaces(jspec))," not supported by UFO_Surfaces"
      call fckit_exception % throw(message)
    end if
    conf%Surfaces(jspec) = UFO_Surfaces(ivar)
@@ -483,27 +529,47 @@ character(max_string) :: cloud_reff_method
 
  ! select between two surface wind geovals options
  ! valid options: vector [default], uv
- if (f_confOper%get('SurfaceWindGeoVars', str)) then
+ if (f_confOper%get("SurfaceWindGeoVars", str)) then
    conf%sfc_wind_geovars = str
  else
-   conf%sfc_wind_geovars = 'vector'
- endif
+   conf%sfc_wind_geovars = "vector"
+ end if
  if (ufo_vars_getindex(ValidSurfaceWindGeoVars, conf%sfc_wind_geovars) < 1) then
-   write(message,*) 'crtm_conf_setup error: invalid SurfaceWindGeoVars ',trim(conf%sfc_wind_geovars)
+   write(message,*) "crtm_conf_setup error: invalid SurfaceWindGeoVars ",trim(conf%sfc_wind_geovars)
    call fckit_exception % throw(message)
  end if
 
  ! Select among one of different methods to handling CO2 Absorber
  ! --------------------------------------------------------------
- if (f_confOper%has('CO2AbsorberMethod')) then
-   call f_confOper%get_or_die('CO2AbsorberMethod', str)
+ if (f_confOper%has("CO2AbsorberMethod")) then
+   call f_confOper%get_or_die("CO2AbsorberMethod", str)
    conf%co2_method_geovars = str
  else
-   conf%co2_method_geovars = 'Background'
+   conf%co2_method_geovars = "Background"
  end if
  if (ufo_vars_getindex(ValidCO2AbsorberMethod, conf%co2_method_geovars) < 1) then
-   write(message,*) 'crtm_conf_setup error: invalid CO2 method ',trim(conf%co2_method_geovars)
+   write(message,*) "crtm_conf_setup error: invalid CO2 method ",trim(conf%co2_method_geovars)
    call fckit_exception % throw(message)
+ end if
+
+ ! Per-variable list of channels whose Jacobian is zeroed
+ ! ---------------------------------------------------------------------------------------
+ if (f_confOper%has("nullify jacobian params")) then
+   call f_confOper%get_or_die("nullify jacobian params", nullifyJacParams_confs)
+
+   allocate(conf%nullifyJacVars(size(nullifyJacParams_confs)))
+   allocate(conf%nullifyJacChannels(size(nullifyJacParams_confs)))
+
+   do jspec = 1, size(nullifyJacParams_confs)
+     call nullifyJacParams_confs(jspec)%get_or_die("variable", str)
+     conf%nullifyJacVars(jspec) = str
+
+     call nullifyJacParams_confs(jspec)%get_or_die("channels", int_array)
+     conf%nullifyJacChannels(jspec)%channels = int_array
+   end do
+ else
+   allocate(conf%nullifyJacVars(0))
+   allocate(conf%nullifyJacChannels(0))
  end if
 
  ! observation midpoint Julian day in proleptic Julian calendar (from 01Jan 4713BC)
@@ -512,14 +578,14 @@ character(max_string) :: cloud_reff_method
 
  ! import a GeoVaLs scaling factor
  ! -------------------------------
- if (f_confOper%has('CO2gvConvertUnit')) then
-   call f_confOper%get_or_die('CO2gvConvertUnit', conf%co2_rescale_to_ppmv)
+ if (f_confOper%has("CO2gvConvertUnit")) then
+   call f_confOper%get_or_die("CO2gvConvertUnit", conf%co2_rescale_to_ppmv)
  end if
 
  ! import a ppmv value of CO2, only used if EternalConstant is selected
  ! --------------------------------------------------------------------
- if (f_confOper%has('CO2ppmvValue')) then
-   call f_confOper%get_or_die('CO2ppmvValue', conf%co2_ppmv_value)
+ if (f_confOper%has("CO2ppmvValue")) then
+   call f_confOper%get_or_die("CO2ppmvValue", conf%co2_ppmv_value)
  end if
 
  ! Sea_Surface_Salinity
@@ -527,7 +593,7 @@ character(max_string) :: cloud_reff_method
  IF (f_confOpts%get("Salinity",str)) THEN
     conf%salinity_option = str
  ELSE
-    conf%salinity_option = 'off'
+    conf%salinity_option = "off"
  END IF
 
  !Allocate SENSOR_ID
@@ -550,7 +616,20 @@ character(max_string) :: cloud_reff_method
  if (f_confOpts%has("NC_CoefficientPath")) then
     call f_confOpts%get_or_die("NC_CoefficientPath",str)
     conf%NC_COEFFICIENT_PATH = str
- endif
+ end if
+
+ ! Spc and Tau coefficient file format
+ conf%SpcCoeff_Format = "Binary"
+ if (f_confOpts%has("SpcCoeff_Format")) then
+    call f_confOpts%get_or_die("SpcCoeff_Format",str)
+    conf%SpcCoeff_Format = str
+ end if
+
+ conf%TauCoeff_Format = "Binary"
+ if (f_confOpts%has("TauCoeff_Format")) then
+    call f_confOpts%get_or_die("TauCoeff_Format",str)
+    conf%TauCoeff_Format = str
+ end if
 
  ! Spc and Tau coefficient file format
  conf%SpcCoeff_Format = "Binary"
@@ -585,7 +664,7 @@ character(max_string) :: cloud_reff_method
  end if
 
  ! Aerosol coefficient file, format, and format
- conf%Aerosol_Model = 'CRTM'
+ conf%Aerosol_Model = "CRTM"
  if (f_confOpts%has("Aerosol_Model")) then
     call f_confOpts%get_or_die("Aerosol_Model",str)
     conf%Aerosol_Model = str
@@ -640,15 +719,15 @@ character(max_string) :: cloud_reff_method
  select case (trim(IRVISlandCoeff))
     case ("USGS")
        allocate(conf%Land_WSI(2))
-       conf%Land_WSI(1:2) = (/16,24/)
+       conf%Land_WSI(1:2) = [16,24]
     case ("IGBP")
        allocate(conf%Land_WSI(2))
-       conf%Land_WSI(1:2) = (/15,17/)
+       conf%Land_WSI(1:2) = [15,17]
     case ("NPOESS")
        allocate(conf%Land_WSI(1))
        conf%Land_WSI(1) = -1
     case default
-       write(message,*) trim(routine_name), ' error: unknown IR/vis land coeff classification ', &
+       write(message,*) trim(routine_name), " error: unknown IR/vis land coeff classification ", &
                         trim(IRVISlandCoeff)
        call fckit_exception % throw(message)
  end select
@@ -673,8 +752,18 @@ character(max_string) :: cloud_reff_method
  conf%inspect = 0
  if (f_confOpts%has("InspectProfileNumber")) then
    call f_confOpts%get_or_die("InspectProfileNumber",conf%inspect)
- endif
+ end if
+ ! reconstruction operator cmatrix path
 
+ conf % read_Cmatrix = .false.
+ if (f_confOpts % has("ReconstructedRadianceCorrection")) then
+    call f_confOpts % get_or_die("ReconstructedRadianceCorrection", conf % read_Cmatrix)
+ end if
+
+ if (conf % read_Cmatrix) then
+    call f_confOpts % get_or_die("CMatrixPath", str)
+    conf % Cmatrix_path = trim(str)
+ end if
 end subroutine crtm_conf_setup
 
 ! -----------------------------------------------------------------------------
@@ -743,7 +832,7 @@ logical, intent(in):: Is_Active_Sensor
 logical, intent(in):: Is_Vis_or_UV
 type(CRTM_Options_type),    intent(inout) :: Options(:)
 
-integer :: jprofile, jchannel, jlevel
+integer :: jprofile, jchannel
 character(len=MAXVARLEN) :: varname
 character(len=64) :: obsGroupName
 character(len=max_string) :: message
@@ -768,17 +857,17 @@ real(kind_real), allocatable :: alon(:),alat(:)
  call get_var_name(channels(1),varname, Is_Active_Sensor, Is_Vis_or_UV)
  if (obsspace_has(obss, "DerivedObsValue", varname)) then
    obsGroupName = "DerivedObsValue"
- elseif (obsspace_has(obss, "ObsValue", varname)) then
+ else if (obsspace_has(obss, "ObsValue", varname)) then
    obsGroupName = "ObsValue"
  else
-   write(message,*) 'Group name for observed values is neither ObsValue nor DerivedObsValue'
+   write(message,*) "Group name for observed values is neither ObsValue nor DerivedObsValue"
    call fckit_exception % throw(message)
- endif
+ end if
 
  do jchannel = 1, n_Channels
    call get_var_name(channels(jchannel),varname, Is_Active_Sensor, Is_Vis_or_UV)
    call obsspace_get_db(obss, trim(obsGroupName), varname, ObsVal(:,jchannel))
-enddo
+end do
 
  if (Is_Active_Sensor) then
     call obsspace_get_db(obss, "MetaData", "sequenceNumber", seqNum)
@@ -786,13 +875,13 @@ enddo
        call obsspace_get_db(obss, "MetaData", "extendedObsSpace", extendedObs)
     else
        extendedObs = 1
-    endif
+    end if
     if (obsspace_has(obss, "MetaData", "actObsAvgQC")) then
        call obsspace_get_db(obss, "MetaData", "actObsAvgQC", actObsAvgQC)
     else
        actObsAvgQC = 1
-    endif
- endif
+    end if
+ end if
 
  allocate(alon(n_Profiles),alat(n_Profiles))
  if (obsspace_has(obss, "MetaData", "latitude")) call obsspace_get_db(obss, "MetaData", "latitude", alat)
@@ -804,24 +893,22 @@ enddo
    Options(jprofile)%Skip_Profile = all(ObsVal(jprofile,:) == missing_d)
 
    ! check for pressure monotonicity
-   do jlevel = atm(jprofile)%n_layers, 1, -1
-     if ( atm(jprofile)%level_pressure(jlevel) <= atm(jprofile)%level_pressure(jlevel-1) ) then
-       Options(jprofile)%Skip_Profile = .TRUE.
-       cycle profile_loop
-     end if
-   end do
+   if (.not. crtm_pressure_is_monotonic(atm(jprofile))) then
+     Options(jprofile)%Skip_Profile = .TRUE.
+     cycle profile_loop
+   end if
 
    ! Sum of the coverage types can be found less than 1 near the boundary of regional configurations. Skip those data points for CRTM.
    if ( abs(sfc(jprofile)%Water_Coverage+sfc(jprofile)%Land_Coverage+sfc(jprofile)%Snow_Coverage+sfc(jprofile)%Ice_Coverage - one ) > 1.0e-6_kind_real) then
      write(message,*) &
-       'Abort! Surface coverage fractions do not sum to 1 for CRTM. Please check ob at ', &
-       'Lon:', alon(jprofile), ', Lat:', alat(jprofile), &
-       ', Water cover:', sfc(jprofile)%Water_Coverage, &
-       ', Land cover:', sfc(jprofile)%Land_Coverage, &
-       ', Snow cover:', sfc(jprofile)%Snow_Coverage, &
-       ', Ice cover:', sfc(jprofile)%Ice_Coverage
+       "Abort! Surface coverage fractions do not sum to 1 for CRTM. Please check ob at ", &
+       "Lon:", alon(jprofile), ", Lat:", alat(jprofile), &
+       ", Water cover:", sfc(jprofile)%Water_Coverage, &
+       ", Land cover:", sfc(jprofile)%Land_Coverage, &
+       ", Snow cover:", sfc(jprofile)%Snow_Coverage, &
+       ", Ice cover:", sfc(jprofile)%Ice_Coverage
      call fckit_exception % throw(message)
-   endif
+   end if
 
    ! check for missing values in water surface temperature when the mask
    ! indicates there is water.
@@ -830,13 +917,13 @@ enddo
    if ((sfc(jprofile)%Water_Temperature == missing_r) .and.   &
        (sfc(jprofile)%Water_Coverage > 0.0) .and. (.not. Is_Vis_or_UV)) then
      Options(jprofile)%Skip_Profile = .TRUE.
-   endif
+   end if
 
    ! check for all channels in Vis/UV profiles that have ObsValue/albedo
    ! that are below minimum threshold. Skip those.
    if (Is_Vis_or_UV) then
       Options(jprofile)%Skip_Profile = all(ObsVal(jprofile,:) < lowest_albedo)
-   endif
+   end if
 
    ! check for all channels in active profiles that have ObsValue/Reflectivity
    ! that are beyond threshold. Skip those.
@@ -846,8 +933,8 @@ enddo
       if (.not.  Options(jprofile)%Skip_Profile) then
          ! the second dimension is for channels so if any channel is missing then skip it
          Options(jprofile)%Skip_Profile = any(abs(ObsVal(jprofile,:)) >= threshold_reflectivity)
-      endif
-   endif
+      end if
+   end if
  end do profile_loop
 
 end subroutine ufo_crtm_skip_profiles
@@ -855,7 +942,7 @@ end subroutine ufo_crtm_skip_profiles
 ! ------------------------------------------------------------------------------
 
 SUBROUTINE Load_Atm_Data(n_Profiles, n_Layers, geovals, atm, conf, Is_Active_Sensor, &
-                zeroCloudInCRTM)
+                zeroCloudInCRTM, row_indices)
 
 use ufo_constants_mod, only: zero
 implicit none
@@ -865,13 +952,19 @@ type(ufo_geovals), intent(in) :: geovals
 type(CRTM_Atmosphere_type), intent(inout) :: atm(:)
 logical, intent(in), optional :: Is_Active_Sensor
 integer, intent(in), optional :: zeroCloudInCRTM(:)
-type(crtm_conf) :: conf
+! Optional map from profile index (1..n_Profiles) to the geovals column that
+! profile's data actually lives in. Defaults to the identity (column k1 for
+! profile k1) when absent, preserving the existing contiguous-range behavior
+! for every caller that doesn't pass it.
+integer, intent(in), optional :: row_indices(:)
+type(crtm_conf), intent(in) :: conf
 
 ! Local variables
 integer :: k1, jspec, jlevel
+integer, allocatable :: src(:)
 type(ufo_geoval), pointer :: geoval
 character(max_string) :: err_msg
-character(*), parameter :: routine_name = 'Load_Atm_Data'
+character(*), parameter :: routine_name = "Load_Atm_Data"
 logical :: IsActiveSensor
 real(kind_real) :: geoval_unit_rescale
 real(kind_real) :: co2
@@ -884,11 +977,19 @@ real(kind_real), allocatable :: clouds_mixingratio(:,:)
 real(kind_real), allocatable :: cloudmxr_sum(:,:)
 real(kind_real), allocatable :: pressure_KPa(:)
 integer  :: id_cld(1)
+
   if (present(Is_Active_Sensor)) then
      IsActiveSensor = Is_Active_Sensor
   else
      IsActiveSensor = .FALSE.
-  endif
+  end if
+
+  allocate(src(n_Profiles))
+  if (present(row_indices)) then
+    src = row_indices
+  else
+    src = [(k1, k1=1,n_Profiles)]
+  end if
 
   ! Populate the atmosphere structures for CRTM
   ! -------------------------------------------
@@ -896,41 +997,40 @@ integer  :: id_cld(1)
   call ufo_geovals_get_var(geovals, var_ts, geoval)
   ! Check model levels is consistent in geovals & crtm
   if (geoval%nval /= n_Layers) then
-    write(err_msg,*) 'Load_Atm_Data error: layers inconsistent!'
+    write(err_msg,*) "Load_Atm_Data error: layers inconsistent!"
     call fckit_exception % throw(err_msg)
-  endif
+  end if
 
   do k1 = 1, n_Profiles
-    atm(k1)%Temperature(1:n_Layers) = geoval%vals(:, k1)
+    atm(k1)%Temperature(1:n_Layers) = geoval%vals(:, src(k1))
   end do
 
   call ufo_geovals_get_var(geovals, var_prs, geoval)
   do k1 = 1, n_Profiles
-    atm(k1)%Pressure(1:n_Layers) = geoval%vals(:, k1) * 0.01  ! to hPa
+    atm(k1)%Pressure(1:n_Layers) = geoval%vals(:, src(k1)) * 0.01  ! to hPa
   end do
 
   call ufo_geovals_get_var(geovals, var_prsi, geoval)
   do k1 = 1, n_Profiles
-    atm(k1)%Level_Pressure(:) = geoval%vals(:, k1) * 0.01     ! to hPa
+    atm(k1)%Level_Pressure(:) = geoval%vals(:, src(k1)) * 0.01     ! to hPa
     atm(k1)%Climatology = US_STANDARD_ATMOSPHERE
   end do
 
-  if ((conf%Aerosol_Model == 'GOCART-GEOS5') .or. &
-      (conf%Aerosol_Model == 'NAAPS')) then
+  if ((conf%Aerosol_Model == "GOCART-GEOS5") .or. &
+      (conf%Aerosol_Model == "NAAPS")) then
     call ufo_geovals_get_var(geovals, var_rh, geoval)
     do k1 = 1, n_Profiles
-      WHERE (geoval%vals(:, k1) > 1.0_kind_real) geoval%vals(:, k1) = 1.0_kind_real
-      WHERE (geoval%vals(:, k1) < 0.0_kind_real) geoval%vals(:, k1) = 0.0_kind_real
-      atm(k1)%Relative_Humidity(1:n_Layers) = geoval%vals(:, k1)        ! fraction
+      WHERE (geoval%vals(:, src(k1)) > 1.0_kind_real) geoval%vals(:, src(k1)) = 1.0_kind_real
+      atm(k1)%Relative_Humidity(:) = geoval%vals(:, src(k1))        ! fraction
       atm(k1)%Climatology = US_STANDARD_ATMOSPHERE
     end do
-  endif
+  end if
 
   do jspec = 1, conf%n_Absorbers
     ! O3 Absorber has special treatment for Aerosols
-    if (cmp_strings(conf%Absorbers(jspec), var_oz) .AND. &
+    if (conf%Absorbers(jspec) == var_oz .AND. &
       ufo_vars_getindex(geovals%variables, var_oz) < 0 .AND. &
-      (.NOT. cmp_strings(conf%aerosol_option,""))) then
+      (conf%aerosol_option /= "")) then
       do k1 = 1, n_Profiles
         atm(k1)%Absorber(1:n_Layers, jspec) = ozone_default_value
       end do
@@ -950,20 +1050,20 @@ integer  :: id_cld(1)
           ! this should automatically be filled by Model2GeoVals
           call ufo_geovals_get_var(geovals, conf%Absorbers(jspec), geoval)
           do k1 = 1, n_Profiles
-            atm(k1)%Absorber(1:n_Layers, jspec) = co2_rescale_to_ppmv * geoval%vals(:, k1)
+            atm(k1)%Absorber(1:n_Layers, jspec) = co2_rescale_to_ppmv * geoval%vals(:, src(k1))
           end do
         case default
-          call fckit_exception % throw('CO2 provided to CRTM is incorrectly set')
+          call fckit_exception % throw("CO2 provided to CRTM is incorrectly set")
       end select
     else
       geoval_unit_rescale = one
-      if (cmp_strings(conf%Absorbers(jspec), var_mixr)) then
+      if (conf%Absorbers(jspec) == var_mixr) then
         ! NOTE if "water_vapor_mixing_ratio_wrt_dry_air", convert from JEDI's kg/kg to CRTM's g/kg
         geoval_unit_rescale = kg_to_g
       end if
       call ufo_geovals_get_var(geovals, conf%Absorbers(jspec), geoval)
       do k1 = 1, n_Profiles
-        atm(k1)%Absorber(1:n_Layers, jspec) = geoval_unit_rescale * geoval%vals(:, k1)
+        atm(k1)%Absorber(1:n_Layers, jspec) = geoval_unit_rescale * geoval%vals(:, src(k1))
       end do
     end if
     do k1 = 1, n_Profiles
@@ -976,8 +1076,8 @@ integer  :: id_cld(1)
     ! cloud species content
     CALL ufo_geovals_get_var(geovals, conf%Clouds(jspec,1), geoval)
     do k1 = 1, n_Profiles
-      where( geoval%vals(:, k1) < 0.0_kind_real ) geoval%vals(:, k1) = 0.0_kind_real
-      atm(k1)%Cloud(jspec)%Water_Content = geoval%vals(:, k1)
+      where( geoval%vals(:, src(k1)) < 0.0_kind_real ) geoval%vals(:, src(k1)) = 0.0_kind_real
+      atm(k1)%Cloud(jspec)%Water_Content = geoval%vals(:, src(k1))
       atm(k1)%Cloud(jspec)%Type = conf%Cloud_Id(jspec)
     end do
 
@@ -985,8 +1085,8 @@ integer  :: id_cld(1)
     if (.not. conf%cal_cloud_reff_in_fov) then
       CALL ufo_geovals_get_var(geovals, conf%Clouds(jspec,2), geoval)
       do k1 = 1, n_Profiles
-        where( geoval%vals(:, k1) < 0.0_kind_real ) geoval%vals(:, k1) = 0.0_kind_real
-        atm(k1)%Cloud(jspec)%Effective_Radius = geoval%vals(:, k1)
+        where( geoval%vals(:, src(k1)) < 0.0_kind_real ) geoval%vals(:, src(k1)) = 0.0_kind_real
+        atm(k1)%Cloud(jspec)%Effective_Radius = geoval%vals(:, src(k1))
       end do
     end if
   end do
@@ -1004,9 +1104,9 @@ integer  :: id_cld(1)
       if ( ufo_vars_getindex(geovals%variables, var_cldfrac) > 0 ) then
         CALL ufo_geovals_get_var(geovals, var_cldfrac, geoval)
         do k1 = 1, n_Profiles
-          where( geoval%vals(:, k1) < 0.0_kind_real ) geoval%vals(:, k1) = 0.0_kind_real
-          where( geoval%vals(:, k1) > 1.0_kind_real ) geoval%vals(:, k1) = 1.0_kind_real
-          atm(k1)%Cloud_Fraction(:) =  geoval%vals(:, k1)
+          where( geoval%vals(:, src(k1)) < 0.0_kind_real ) geoval%vals(:, src(k1)) = 0.0_kind_real
+          where( geoval%vals(:, src(k1)) > 1.0_kind_real ) geoval%vals(:, src(k1)) = 1.0_kind_real
+          atm(k1)%Cloud_Fraction(:) =  geoval%vals(:, src(k1))
         end do
       end if
     end if
@@ -1017,14 +1117,14 @@ integer  :: id_cld(1)
     CALL ufo_geovals_get_var(geovals, var_qsat, geoval)
     allocate(geoval_qsat(n_Layers,n_profiles))
     do k1 = 1, n_Profiles
-      geoval_qsat(:, k1)=geoval%vals(:, k1)
+      geoval_qsat(:, k1)=geoval%vals(:, src(k1))
     end do
 
     ! get "moist_air_density"
     call ufo_geovals_get_var(geovals, var_airdens, geoval)
     allocate(airdens(n_Layers,n_profiles))
     do k1 = 1, n_Profiles
-      airdens(:, k1)=geoval%vals(:, k1)
+      airdens(:, k1)=geoval%vals(:, src(k1))
     end do
 
     ! get specific_humidity and relative_humidity which can be
@@ -1033,7 +1133,7 @@ integer  :: id_cld(1)
     allocate(specific_humidity(n_Layers,n_profiles))
     allocate(relative_humidity(n_Layers,n_profiles))
     do k1 = 1, n_Profiles
-      specific_humidity(:, k1)=geoval%vals(:, k1)
+      specific_humidity(:, k1)=geoval%vals(:, src(k1))
     end do
     where(specific_humidity < qsmall) specific_humidity=qsmall
     relative_humidity=specific_humidity/geoval_qsat
@@ -1042,7 +1142,7 @@ integer  :: id_cld(1)
     call ufo_geovals_get_var(geovals, var_ni, geoval)
     allocate(cloud_ice_number(n_Layers,n_profiles))
     do k1 = 1, n_Profiles
-      cloud_ice_number(:, k1)=geoval%vals(:, k1)
+      cloud_ice_number(:, k1)=geoval%vals(:, src(k1))
     end do
     where(cloud_ice_number < 0.0_kind_real) cloud_ice_number = 0.0_kind_real
 
@@ -1050,7 +1150,7 @@ integer  :: id_cld(1)
     call ufo_geovals_get_var(geovals, var_nr, geoval)
     allocate(rain_number(n_Layers,n_profiles))
     do k1 = 1, n_Profiles
-      rain_number(:, k1)=geoval%vals(:, k1)
+      rain_number(:, k1)=geoval%vals(:, src(k1))
     end do
     where(rain_number < 0.0_kind_real) rain_number = 0.0_kind_real
 
@@ -1063,7 +1163,7 @@ integer  :: id_cld(1)
       if (id_cld(1) > 0) then
         call ufo_geovals_get_var(geovals, trim(thompson_Cloud_var(id_cld(1))), geoval)
         profile_loop_reff: do k1 = 1, n_Profiles
-          clouds_mixingratio(:,k1) = geoval%vals(:, k1)
+          clouds_mixingratio(:,k1) = geoval%vals(:, src(k1))
           where(clouds_mixingratio(:,k1) < 0.0_kind_real) clouds_mixingratio(:,k1) = 0.0_kind_real
           if (conf%cal_cloud_frac_in_fov) then
             cloudmxr_sum(:,k1) = cloudmxr_sum(:,k1) +  clouds_mixingratio(:, k1)
@@ -1109,9 +1209,9 @@ integer  :: id_cld(1)
           atm(k1)%Cloud(jspec)%Effective_Radius = zero
         end do
         atm(k1)%Cloud_Fraction(:) = zero
-      endif
+      end if
     end do
-  endif
+  end if
 
   if ( (conf%n_Clouds > 0) .and. conf%precip_hydro) then
     do k1 = 1, n_Profiles
@@ -1140,7 +1240,7 @@ integer  :: id_cld(1)
         ! Do not check and reset these cloud values if clouds are zero-ed out.
         if (present(zeroCloudInCRTM)) then
           if (zeroCloudInCRTM(k1) == 1) cycle profile_loop_cs
-        endif
+        end if
         do jlevel = 1, atm(k1)%n_layers
            ! Check Cloud Content
            do jspec = 1, conf%n_Clouds
@@ -1192,6 +1292,7 @@ integer  :: id_cld(1)
   if (allocated(cloudmxr_sum)) deallocate(cloudmxr_sum)
   if (allocated(clouds_mixingratio)) deallocate(clouds_mixingratio)
   if (allocated(pressure_KPa)) deallocate(pressure_KPa)
+  deallocate(src)
 end subroutine Load_Atm_Data
 
 ! ------------------------------------------------------------------------------
@@ -1230,18 +1331,18 @@ real(kind_real), allocatable :: ObsTb(:,:)
   call get_var_name(channels(1),varname, Is_Active_Sensor, Is_Vis_or_UV)
   if (obsspace_has(obss, "ObsValue", varname)) then
     obsGroupName = "ObsValue"
-  elseif (obsspace_has(obss, "DerivedObsValue", varname)) then
+  else if (obsspace_has(obss, "DerivedObsValue", varname)) then
     obsGroupName = "DerivedObsValue"
   else
-    write(message,*) 'Group name for observed values is neither ObsValue nor DerivedObsValue'
+    write(message,*) "Group name for observed values is neither ObsValue nor DerivedObsValue"
     call fckit_exception % throw(message)
-  endif
+  end if
 
   if (.not. Is_Active_Sensor) then
     do n1 = 1, n_Channels
       call get_var_name(channels(n1),varname, Is_Active_Sensor, Is_Vis_or_UV)
       call obsspace_get_db(obss, trim(obsGroupName), varname, ObsTb(:, n1))
-    enddo
+    end do
   end if
 
   do k1 = 1, n_Profiles
@@ -1255,7 +1356,7 @@ real(kind_real), allocatable :: ObsTb(:,:)
     if (.not. Is_Active_Sensor) then
       do n1 = 1, n_channels
          sfc(k1)%sensordata%tb(n1) = ObsTb(k1, n1)
-      enddo
+      end do
     end if
 
     !Water_type
@@ -1298,7 +1399,7 @@ real(kind_real), allocatable :: ObsTb(:,:)
       sfc(k1)%Wind_Direction = uv_to_wdir(u%vals(1, k1), v%vals(1, k1))
     end do
   else
-    call fckit_exception % throw('Load_Sfc_Data error: missing surface wind geovals')
+    call fckit_exception % throw("Load_Sfc_Data error: missing surface wind geovals")
   end if
 
   !Water_Coverage
@@ -1420,7 +1521,7 @@ real(kind_real), allocatable :: ObsTb(:,:)
   end do
 
   !Sea_Surface_Salinity
-  if (cmp_strings(conf%salinity_option, "on")) THEN
+  if (conf%salinity_option == "on") THEN
     call ufo_geovals_get_var(geovals, var_sfc_sss, geoval)
     do k1 = 1, n_Profiles
       sfc(k1)%Salinity = geoval%vals(1, k1)
@@ -1499,29 +1600,29 @@ integer :: nlocs
 
  ! Read geophysical values for gmi high frequency channels 10-13.
  if (present(sensor_id)) then
-   if (cmp_strings(trim(sensor_id),'gmi_gpm')) then
+   if (sensor_id == "gmi_gpm") then
     if ( present(geo_hf) ) then
       geo_hf = geo
       if (obsspace_has(obss, "MetaData", "sensorZenithAngle1")) then
         call obsspace_get_db(obss, "MetaData", "sensorZenithAngle1", TmpVar)
         geo_hf(:)%Sensor_Zenith_Angle = abs(TmpVar(:)) ! needs to be absolute value
-      endif
+      end if
       if (obsspace_has(obss, "MetaData", "solarZenithAngle1")) then
         call obsspace_get_db(obss, "MetaData", "solarZenithAngle1", TmpVar)
         geo_hf(:)%Source_Zenith_Angle = TmpVar(:)
-      endif
+      end if
       if (obsspace_has(obss, "MetaData", "sensorAzimuthAngle1")) then
         call obsspace_get_db(obss, "MetaData", "sensorAzimuthAngle1", TmpVar)
         geo_hf(:)%Sensor_Azimuth_Angle = TmpVar(:)
-      endif
+      end if
       if (obsspace_has(obss, "MetaData", "solarAzimuthAngle1")) then
         call obsspace_get_db(obss, "MetaData", "solarAzimuthAngle1", TmpVar)
         geo_hf(:)%Source_Azimuth_Angle = TmpVar(:)
-      endif
+      end if
       if (obsspace_has(obss, "MetaData", "sensorViewAngle1")) then
         call obsspace_get_db(obss, "MetaData", "sensorViewAngle1", TmpVar)
         geo_hf(:)%Sensor_Scan_Angle = TmpVar(:)
-      endif
+      end if
       ! For some microwave instruments the solar and sensor azimuth angles can be
       ! missing  (given a value of 10^11).  Set these to zero to get past CRTM QC.
       where (geo_hf(:)%Source_Azimuth_Angle < 0.0_kind_real .or. &
@@ -1530,9 +1631,15 @@ integer :: nlocs
       where (geo_hf(:)%Sensor_Azimuth_Angle < 0.0_kind_real .or. &
             geo_hf(:)%Sensor_Azimuth_Angle > 360.0_kind_real) &
         geo_hf(:)%Sensor_Azimuth_Angle = 0.0_kind_real
-    endif
-  endif
- endif
+      where (geo_hf(:)%Sensor_Zenith_Angle > 80.0_kind_real) &
+        geo_hf(:)%Sensor_Zenith_Angle = 80.0_kind_real
+      where (abs(geo_hf(:)%Source_Zenith_Angle) > 180.0_kind_real) &
+        geo_hf(:)%Source_Zenith_Angle = 100.0_kind_real
+      where (abs(geo_hf(:)%Sensor_Scan_Angle) > 80.0_kind_real) &
+        geo_hf(:)%Sensor_Scan_Angle = 0.0_kind_real
+    end if
+  end if
+ end if
 
  deallocate(TmpVar)
  deallocate(TmpVar2)
@@ -1550,16 +1657,16 @@ logical, intent(in) :: Is_Vis_or_UV
 
 character(len=6) :: chan
 
- write(chan, '(I0)') n
+ write(chan, "(I0)") n
  if (Is_Active_Sensor) then
-     varname = 'ReflectivityAttenuated_' // trim(chan)
+     varname = "ReflectivityAttenuated_" // trim(chan)
  else
      if (Is_Vis_or_UV) then
-        varname = 'albedo_' // trim(chan)
+        varname = "albedo_" // trim(chan)
      else
-        varname = 'brightnessTemperature_' // trim(chan)
-     endif
- endif
+        varname = "brightnessTemperature_" // trim(chan)
+     end if
+ end if
 
 end subroutine get_var_name
 
@@ -1571,8 +1678,8 @@ end subroutine get_var_name
 !! from north, similar to an azimuth angle.  Takes the eastward and northward
 !! wind component magnitudes, respectively, as arguments.
 !! Due to the azimuthal convention used here, the inverse equations are:
-!! u = w * cos(wdir * deg2rad)
-!! v = w * sin(wdir * deg2rad)
+!! u = w * sin(wdir * deg2rad)
+!! v = w * cos(wdir * deg2rad)
 !! where w is the wind speed
 function uv_to_wdir(u, v) result(wdir)
 
@@ -1588,8 +1695,8 @@ integer :: iquadrant
 real(kind=kind_real),parameter:: windscale = 999999.0_kind_real
 real(kind=kind_real),parameter:: windlimit = 0.0001_kind_real
 real(kind=kind_real),parameter:: quadcof(4,2) = &
-  reshape((/zero,  one,  one,  two, &
-            one,  -one,  one, -one/), (/4,2/))
+  reshape([zero,  one,  one,  two, &
+            one,  -one,  one, -one], [4,2])
 
   if (u >= zero .and. v >= zero) iquadrant = 1
   if (u >= zero .and. v <  zero) iquadrant = 2
@@ -1602,8 +1709,8 @@ real(kind=kind_real),parameter:: quadcof(4,2) = &
     windratio = zero
     if (abs(u) > windlimit) then
       windratio = windscale * u
-    endif
-  endif
+    end if
+  end if
   windangle = atan(abs(windratio))   ! wind azimuth is in radians
   wdir = ( quadcof(iquadrant, 1) * pi + windangle * quadcof(iquadrant, 2) ) * rad2deg
 
@@ -1616,7 +1723,6 @@ end function uv_to_wdir
     ! CRTM, NAAPS, GOCART-GEOS5, CMAQ
     CHARACTER(*), INTENT(in) :: aerosol_coef_file
     CHARACTER(*), INTENT(out) :: aerosol_model
-    integer :: checkstring
 
     if (aerosol_coef_file == "AerosolCoeff.nc4" .or. &
         aerosol_coef_file == "AerosolCoeff.bin") then
@@ -1630,7 +1736,7 @@ end function uv_to_wdir
     else if (aerosol_coef_file == "AerosolCoeff.CMAQ.nc4" .or. &
              aerosol_coef_file == "AerosolCoeff.CMAQ.bin") then
        aerosol_model = "CMAQ"
-    endif
+    end if
 
    END SUBROUTINE define_aerosol_model
 
@@ -1641,23 +1747,23 @@ end function uv_to_wdir
 
     CHARACTER(max_string) :: err_msg
 
-    IF (cmp_strings(aerosol_option,"aerosols_gocart_default")) THEN
+    IF (aerosol_option == "aerosols_gocart_default") THEN
        ALLOCATE(var_aerosols(n_aerosols_gocart_default))
        var_aerosols=var_aerosols_gocart_default
-    ELSEIF (cmp_strings(aerosol_option,"aerosols_gocart_gefs")) THEN
+    ELSE IF (aerosol_option == "aerosols_gocart_gefs") THEN
        ALLOCATE(var_aerosols(n_aerosols_gocart_gefs))
        var_aerosols=var_aerosols_gocart_gefs
-    ELSEIF (cmp_strings(aerosol_option,"aerosols_gocart_ufs")) THEN
+    ELSE IF (aerosol_option == "aerosols_gocart_ufs") THEN
        ALLOCATE(var_aerosols(n_aerosols_gocart_ufs))
        var_aerosols=var_aerosols_gocart_ufs
-    ELSEIF (cmp_strings(aerosol_option,"aerosols_gocart_geos")) THEN
+    ELSE IF (aerosol_option == "aerosols_gocart_geos") THEN
        ALLOCATE(var_aerosols(n_aerosols_gocart_geos))
        var_aerosols=var_aerosols_gocart_geos
-    ELSEIF (cmp_strings(aerosol_option,"aerosols_gocart2g_mpas")) THEN
+    ELSEIF (aerosol_option == "aerosols_gocart2g_mpas") THEN
        ALLOCATE(var_aerosols(n_aerosols_gocart2g_mpas))
        var_aerosols=var_aerosols_gocart2g_mpas
     ELSE
-       WRITE(err_msg,*) 'assign_aerosol_names: aerosol_option not implemented'&
+       WRITE(err_msg,*) "assign_aerosol_names: aerosol_option not implemented"&
        &//TRIM(aerosol_option)
        call fckit_exception % throw(err_msg)
      END IF
@@ -1665,8 +1771,7 @@ end function uv_to_wdir
    END SUBROUTINE assign_aerosol_names
 
    SUBROUTINE load_aerosol_data(n_profiles, n_layers, geovals,&
-     &conf, var_aerosols, aerosol_model, atm)
-
+     &conf, var_aerosols, aerosol_model, atm, row_indices)
     USE CRTM_aerosolcoeff, ONLY: aeroc
 
     TYPE(crtm_conf), INTENT(in)    :: conf
@@ -1675,23 +1780,38 @@ end function uv_to_wdir
     TYPE(ufo_geoval), POINTER :: geoval
 
     INTEGER, INTENT(in) :: n_profiles, n_layers
-    INTEGER :: ivar, n_aerosols, i, k, m
+    ! Optional map from profile index (1..n_profiles) to the geovals column
+    ! that profile's data actually lives in. Defaults to the identity when
+    ! absent, preserving existing behavior for every caller that omits it.
+    INTEGER, INTENT(in), OPTIONAL :: row_indices(:)
+    INTEGER, ALLOCATABLE :: src(:)
+    INTEGER :: n_aerosols, i, k, m
 
     REAL(kind_real), DIMENSION(5), PARAMETER  :: dust_radii=[&
          &0.55_kind_real,1.4_kind_real,2.4_kind_real,4.5_kind_real,8.0_kind_real]
     REAL(kind_real), DIMENSION(n_layers) :: layer_factors
     REAL(kind_real), DIMENSION(n_layers, n_profiles) :: rh
 
-    CHARACTER(*), PARAMETER :: routine_name = 'Load_Aerosol_Data'
+    CHARACTER(*), PARAMETER :: routine_name = "Load_Aerosol_Data"
     CHARACTER(*), INTENT(in) :: aerosol_model
-    CHARACTER(len=MAXVARLEN) :: var_aerosols(:)
+    CHARACTER(len=MAXVARLEN), INTENT(in) :: var_aerosols(:)
     CHARACTER(len=MAXVARLEN) :: varname
     CHARACTER(max_string) :: err_msg, message
 
+    character(len=20) :: fname
+
+    ALLOCATE(src(n_profiles))
+    IF (PRESENT(row_indices)) THEN
+      src = row_indices
+    ELSE
+      src = [(m, m=1,n_profiles)]
+    END IF
 
     varname = var_rh
     CALL ufo_geovals_get_var(geovals, varname, geoval)
-    rh(1:n_layers,1:n_profiles)=geoval%vals(1:n_layers,1:n_profiles)
+    DO m = 1, n_profiles
+      rh(1:n_layers,m) = geoval%vals(1:n_layers, src(m))
+    END DO
     WHERE (rh > 1.0_kind_real) rh=1.0_kind_real
 
     n_aerosols=SIZE(var_aerosols)
@@ -1706,11 +1826,10 @@ end function uv_to_wdir
           CALL ufo_geovals_get_var(geovals,varname, geoval)
 
           atm(m)%aerosol(i)%Concentration(1:n_layers)=&
-               &MAX(geoval%vals(:,m)*conf%unit_coef*layer_factors, &
+               &MAX(geoval%vals(:,src(m))*conf%unit_coef*layer_factors, &
                &aerosol_concentration_minvalue_layer)
 
-
-          IF (cmp_strings(TRIM(aerosol_model), "CRTM")) THEN
+          IF (aerosol_model == "CRTM") THEN
 
             !Indices for CRTM default LUT
             !DUST_AEROSOL = 1
@@ -1761,8 +1880,8 @@ end function uv_to_wdir
                atm(m)%aerosol(i)%TYPE  = 5
 
             CASE DEFAULT
-               write(message,*) 'WARNING!: ', TRIM(varname),&
-               &' is not included in ', TRIM(aerosol_model), ' LUT'
+               write(message,*) "WARNING!: ", TRIM(varname),&
+               &" is not included in ", TRIM(aerosol_model), " LUT"
                atm(m)%aerosol(i)%TYPE  = -1
             END SELECT
 
@@ -1775,7 +1894,7 @@ end function uv_to_wdir
                   atm(m)%aerosol(i)%effective_radius(k)=&
                    & gocart_aerosol_size(atm(m)%aerosol(i)&
                    &%TYPE, rh(k,m))
-               ENDDO
+               END DO
 
             CASE (var_bcphobic, var_ocphobic)
                atm(m)%aerosol(i)%effective_radius(:)= AeroC&
@@ -1784,7 +1903,7 @@ end function uv_to_wdir
             END SELECT
 
 
-         ELSEIF (cmp_strings(TRIM(aerosol_model), "GOCART-GEOS5")) THEN
+         ELSE IF (aerosol_model == "GOCART-GEOS5") THEN
 
             ! This is for the NASA GOCART tables, aerosol scheme GOCART-GEOS5 in CRTM
             ! Reff are bin effective radius from NASA tables
@@ -1865,12 +1984,12 @@ end function uv_to_wdir
                atm(m)%aerosol(i)%TYPE  = 21 ! bin 2
 
             CASE DEFAULT
-               write(message,*) 'WARNING!: ', TRIM(varname),&
-               ' is not included in ', TRIM(aerosol_model), ' LUT'
+               write(message,*) "WARNING!: ", TRIM(varname),&
+               " is not included in ", TRIM(aerosol_model), " LUT"
                atm(m)%aerosol(i)%TYPE  = -1
             END SELECT
 
-          ELSEIF (cmp_strings(trim(aerosol_model), "CMAQ")) THEN
+          ELSE IF (aerosol_model == "CMAQ") THEN
             ! Aerosol scheme CMAQ in CRTM
             ! CMAQ table:
             ! Dust - 1
@@ -1885,7 +2004,7 @@ end function uv_to_wdir
             ! Place holder for effective radius variance, set as 1.0
             DO k=1,n_layers
                atm(m)%aerosol(i)%effective_variance(k)=1.0_kind_real
-            ENDDO
+            END DO
 
             ! Assign aerosol type
             SELECT CASE (TRIM(varname))
@@ -1945,10 +2064,10 @@ end function uv_to_wdir
                  atm(m)%aerosol(i)%TYPE = 3
 
             CASE DEFAULT
-               write(message,*) 'WARNING!: ', TRIM(varname),&
-               ' is not included in ', TRIM(aerosol_model), ' LUT'
+               write(message,*) "WARNING!: ", TRIM(varname),&
+               " is not included in ", TRIM(aerosol_model), " LUT"
                atm(m)%aerosol(i)%TYPE  = -1
-            WRITE(err_msg,*) TRIM(conf%aerosol_option)//' not ready in UFO/AODCRTM'
+            WRITE(err_msg,*) TRIM(conf%aerosol_option)//" not ready in UFO/AODCRTM"
             call fckit_exception % throw(err_msg)
 
             END SELECT
@@ -1963,7 +2082,7 @@ end function uv_to_wdir
                   atm(m)%aerosol(i)%effective_radius(k)=&
                    & gocart_aerosol_size(atm(m)%aerosol(i)&
                    &%TYPE, rh(k,m))
-               ENDDO
+               END DO
             ! Reff for hydrophobic aerosols
             CASE (var_du001, var_du002, var_du003, var_du004, var_du005,&
                   &var_bcphobic, var_ocphobic)
@@ -1972,7 +2091,7 @@ end function uv_to_wdir
 
             END SELECT
 
-          ELSEIF (cmp_strings(TRIM(aerosol_model), "NAAPS")) THEN
+          ELSE IF (aerosol_model == "NAAPS") THEN
             ! This is for the NRL NAAPS tables, aerosol scheme NAAPS in CRTM
             ! Similar to GOCART-GEOS5 LUT, no Reff needs to be assigned
             ! NAAPS table is recommended for AOD calculation only due to
@@ -2041,18 +2160,19 @@ end function uv_to_wdir
                atm(m)%aerosol(i)%TYPE = 2
 
             CASE DEFAULT
-               write(message,*) 'WARNING!: ', TRIM(varname),&
-               ' is not included in ', TRIM(aerosol_model), ' LUT'
+               write(message,*) "WARNING!: ", TRIM(varname),&
+               " is not included in ", TRIM(aerosol_model), " LUT"
                atm(m)%aerosol(i)%TYPE  = -1
-            WRITE(err_msg,*) TRIM(conf%aerosol_option)//' not ready in UFO/AODCRTM'
+            WRITE(err_msg,*) TRIM(conf%aerosol_option)//" not ready in UFO/AODCRTM"
             call fckit_exception % throw(err_msg)
 
             END SELECT
 
-          ENDIF
+          END IF
        END DO
      END DO
 
+     DEALLOCATE(src)
    END SUBROUTINE load_aerosol_data
 
    SUBROUTINE calculate_aero_layer_factor_atm_profile(atm, layer_factors)
@@ -2069,7 +2189,7 @@ end function uv_to_wdir
         layer_factors(k)=1e-9_kind_real*(atm%Level_Pressure(k)-&
              &atm%Level_Pressure(k-1))*100.0_kind_real/grav/&
              &(1.0_kind_real+rv_rd*atm%Absorber(k,1)*1e-3_kind_real)
-     ENDDO
+     END DO
 
    END SUBROUTINE calculate_aero_layer_factor_atm_profile
 
@@ -2087,8 +2207,8 @@ end function uv_to_wdir
            layer_factors(k,m)=1e-9_kind_real*(atm(m)%Level_Pressure(k)-&
                 &atm(m)%Level_Pressure(k-1))*100.0_kind_real/grav/&
                 &(1.0_kind_real+rv_rd*atm(m)%Absorber(k,1)*1.e-3_kind_real)
-        ENDDO
-     ENDDO
+        END DO
+     END DO
 
    END SUBROUTINE calculate_aero_layer_factor_atm
 
@@ -2124,15 +2244,15 @@ end function uv_to_wdir
               j2 = m+1
               h1 = (rh-aeroc%rh(m))/(aeroc%rh(m+1)-aeroc%rh(m))
               EXIT
-           ENDIF
-        ENDDO
-     ENDIF
+           END IF
+        END DO
+     END IF
 
      IF ( j2 == 0 ) THEN
         r_eff = aeroc%reff(j1,itype )
      ELSE
         r_eff = (1.0_kind_real-h1)*aeroc%reff(j1,itype ) + h1*aeroc%reff(j2,itype )
-     ENDIF
+     END IF
 
    END FUNCTION gocart_aerosol_size
 
@@ -2146,8 +2266,8 @@ end function uv_to_wdir
 
      INTEGER :: ic, i
 
-     CHARACTER(26), PARAMETER :: upper = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'
-     CHARACTER(26), PARAMETER :: lower = 'abcdefghijklmnopqrstuvwxyz'
+     CHARACTER(26), PARAMETER :: upper = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+     CHARACTER(26), PARAMETER :: lower = "abcdefghijklmnopqrstuvwxyz"
 
 !   lowcase each letter if it is lowecase
      string = str
@@ -2162,14 +2282,14 @@ end function uv_to_wdir
      IMPLICIT NONE
      CHARACTER(len=*),INTENT(in) :: names(:)
      CHARACTER(len=*),INTENT(in) :: usrname
-     INTEGER i
+     INTEGER :: i
      getindex=-1
      DO i=1,SIZE(names)
-        IF(cmp_strings(usrname, names(i))) THEN
+        IF(usrname == names(i)) THEN
            getindex=i
            EXIT
-        ENDIF
-     ENDDO
+        END IF
+     END DO
    END FUNCTION getindex
 
 !from fv3
@@ -2181,10 +2301,10 @@ end function uv_to_wdir
 
      REAL, ALLOCATABLE :: table(:),des(:)
 
-     REAL es, qs, q
-     REAL ap1, eps10
-     REAL Tmin
-     INTEGER i, k, it, n_layers, n_profiles
+     REAL :: es, qs, q
+     REAL :: ap1, eps10
+     REAL :: Tmin
+     INTEGER :: i, k, it, n_layers, n_profiles
 
      n_layers=SIZE(rh,1)
      n_profiles=SIZE(rh,2)
@@ -2203,8 +2323,8 @@ end function uv_to_wdir
            q=atm(i)%Absorber(k,1)*1.e-3/(1.+atm(i)%Absorber(k,1)*1.e-3)
            qs = esl*es*(1.+zvir*q)/(atm(i)%Pressure(k)*100.)
            rh(k,i) = q/qs
-        ENDDO
-     ENDDO
+        END DO
+     END DO
 
    END SUBROUTINE qsmith_atm
 
@@ -2215,10 +2335,10 @@ end function uv_to_wdir
 
      REAL, ALLOCATABLE :: table(:),des(:)
 
-     REAL es, qs, q
-     REAL ap1, eps10
-     REAL Tmin
-     INTEGER i, k, it, n_layers, n_profiles
+     REAL :: es, qs, q
+     REAL :: ap1, eps10
+     REAL :: Tmin
+     INTEGER :: i, k, it, n_layers, n_profiles
 
      n_layers=SIZE(t,1)
      n_profiles=SIZE(t,2)
@@ -2237,8 +2357,8 @@ end function uv_to_wdir
            q=sphum(k,i)
            qs = esl*es*(1.+zvir*q)/p(k,i)
            rh(k,i) = q/qs
-        ENDDO
-     ENDDO
+        END DO
+     END DO
 
    END SUBROUTINE qsmith_profiles
 
@@ -2246,7 +2366,7 @@ end function uv_to_wdir
 
      REAL, ALLOCATABLE, INTENT(out) :: table(:),des(:)
      INTEGER, PARAMETER:: length=2621
-     INTEGER i
+     INTEGER :: i
 
      IF( .NOT. ALLOCATED(table) ) THEN
 !                            Generate es table (dT = 0.1 deg. C)
@@ -2258,18 +2378,18 @@ end function uv_to_wdir
 
         DO i=1,length-1
            des(i) = table(i+1) - table(i)
-        ENDDO
+        END DO
         des(length) = des(length-1)
-     ENDIF
+     END IF
 
    END SUBROUTINE qsmith_init
 
    SUBROUTINE qs_table(n,table)
      INTEGER, INTENT(in):: n
-     REAL table (n)
-     REAL :: dt=0.1
-     REAL esbasw, tbasw, tbasi, Tmin, tem, aa, b, c, d, e
-     INTEGER i
+     REAL, INTENT(out) :: table (n)
+     REAL, PARAMETER :: dt=0.1
+     REAL :: esbasw, tbasw, tbasi, Tmin, tem, aa, b, c, d, e
+     INTEGER :: i
 ! Constants
      esbasw = 1013246.0
      tbasw =   373.16
@@ -2280,12 +2400,12 @@ end function uv_to_wdir
      DO  i=1,n
         tem = Tmin+dt*REAL(i-1)
         aa  = -7.90298*(tbasw/tem-1)
-        b   =  5.02808*alog10(tbasw/tem)
+        b   =  5.02808*log10(tbasw/tem)
         c   = -1.3816e-07*(10**((1-tem/tbasw)*11.344)-1)
         d   =  8.1328e-03*(10**((tbasw/tem-1)*(-3.49149))-1)
-        e   =  alog10(esbasw)
+        e   =  log10(esbasw)
         table(i)  = 0.1*10**(aa+b+c+d+e)
-     ENDDO
+     END DO
 
    END SUBROUTINE qs_table
 
@@ -2317,7 +2437,7 @@ end function uv_to_wdir
   real(kind_real), dimension(n_Layers) ,intent(inout) :: reff      ! [ micron ]
 
 ! Declare local variables
-  character(len=*), parameter :: myname_ = 'calc_thompson_reff'
+  character(len=*), parameter :: myname_ = "calc_thompson_reff"
   integer(c_int) :: k
   integer(c_int) :: mu_w
   real(kind_real)    :: qx
@@ -2354,14 +2474,14 @@ end function uv_to_wdir
 
 !For snow moments conversions  (from Field et al. 2005)
   real(kind_real), dimension(10), parameter:: &
-      sa = (/ 5.065339_kind_real, -0.062659_kind_real, -3.032362_kind_real, 0.029469_kind_real, -0.000285_kind_real,      &
-     &        0.31255_kind_real,   0.000204_kind_real,  0.003199_kind_real, 0.0_kind_real,      -0.015952_kind_real/)
+      sa = [ 5.065339_kind_real, -0.062659_kind_real, -3.032362_kind_real, 0.029469_kind_real, -0.000285_kind_real,      &
+     &        0.31255_kind_real,   0.000204_kind_real,  0.003199_kind_real, 0.0_kind_real,      -0.015952_kind_real]
       real(kind_real), dimension(10), parameter:: &
-      sb = (/ 0.476221_kind_real, -0.015896_kind_real,  0.165977_kind_real, 0.007468_kind_real, -0.000141_kind_real,      &
-     &        0.060366_kind_real,  0.000079_kind_real,  0.000594_kind_real, 0.0_kind_real,      -0.003577_kind_real/)
+      sb = [ 0.476221_kind_real, -0.015896_kind_real,  0.165977_kind_real, 0.007468_kind_real, -0.000141_kind_real,      &
+     &        0.060366_kind_real,  0.000079_kind_real,  0.000594_kind_real, 0.0_kind_real,      -0.003577_kind_real]
   real(kind_real), parameter :: am_s      =     0.069_kind_real
   real(kind_real), parameter :: bm_s = 2.0_kind_real
-  real(kind_real), dimension(1), parameter :: cse = (/ bm_s + 1.0_kind_real /)
+  real(kind_real), dimension(1), parameter :: cse = [ bm_s + 1.0_kind_real ]
   real(kind_real) :: tc0, smob, smoc, a_, b_, loga_
 
   ! Parameters for graupel  (Lin 1983)
@@ -2387,8 +2507,8 @@ end function uv_to_wdir
            reff(k) = max(reff_min, min(reff_max, reff(k)))
         else
            reff(k) = zero
-        endif
-     enddo
+        end if
+     end do
 
   ! Cloud Ice
   else if (cloud_type_Id==ICE_CLOUD) then
@@ -2404,8 +2524,8 @@ end function uv_to_wdir
            reff(k) = max(reff_min, min(reff_max, reff(k)))
         else
            reff(k) = zero
-        endif
-     enddo
+        end if
+     end do
   !Rain
   else if (cloud_type_Id==RAIN_CLOUD) then
      am_r = rho_r*pi/6.0_kind_real
@@ -2420,8 +2540,8 @@ end function uv_to_wdir
            reff(k) = max(reff_min, min(reff_max, reff(k)))
         else
            reff(k) = zero
-        endif
-     enddo
+        end if
+     end do
 
 ! Snow (Field et al. 2005)
 
@@ -2449,8 +2569,8 @@ end function uv_to_wdir
            reff(k) = max(reff_min, min(reff_max, reff(k)*1.0e6_kind_real))
         else
            reff(k) = zero
-        endif
-     enddo
+        end if
+     end do
 
   ! Graupel
   else if (cloud_type_Id==GRAUPEL_CLOUD) then
@@ -2468,10 +2588,10 @@ end function uv_to_wdir
            reff(k) = max(reff_min, min(reff_max, reff(k)))
         else
            reff(k) = zero
-        endif
-     enddo
+        end if
+     end do
 
-  endif
+  end if
 
   end subroutine calc_thompson_reff
 
@@ -2534,15 +2654,15 @@ end function uv_to_wdir
               tem1  = xrc3 / tem1
            else
               tem1  = 100.0_kind_real / tem1
-           endif
+           end if
            value = max( min( tem1*(clwf(k)-clwm), 50.0_kind_real ), 0.0_kind_real )
            tem2  = sqrt( sqrt(rhly(k)) )
            cldtot(k) = max( tem2*(1.0_kind_real-exp(-value)), 0.0_kind_real )
-        endif
+        end if
      else
         cldtot(k) = 0.0_kind_real
-     endif
-  enddo
+     end if
+  end do
   where(cldtot < 0.0_kind_real) cldtot = 0.0_kind_real
   where(cldtot > 1.0_kind_real) cldtot = 1.0_kind_real
   end subroutine calc_thompson_cloudfrac

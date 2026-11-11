@@ -8,6 +8,7 @@
 #include <algorithm>
 #include <string>
 
+#include "ioda/distribution/Distribution.h"
 #include "ioda/ObsSpace.h"
 
 #include "oops/util/missingValues.h"
@@ -174,6 +175,8 @@ void RecordHandler::checkRecordCategories(const Variable & categoryVariableName)
     break;
   case ioda::ObsDtype::String:
     checkRecordCategoriesImpl<std::string>(categoryVariableName);
+    break;
+  case ioda::ObsDtype::Empty:
     break;
   default:
     throw eckit::UserError(categoryVariableName.fullName() +

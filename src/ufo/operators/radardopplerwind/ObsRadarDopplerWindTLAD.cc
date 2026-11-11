@@ -26,7 +26,8 @@ static LinearObsOperatorMaker<ObsRadarDopplerWindTLAD> makerRadarDopplerWindTL_(
 
 ObsRadarDopplerWindTLAD::ObsRadarDopplerWindTLAD(const ioda::ObsSpace & odb,
                                                  const Parameters_ & params)
-  : LinearObsOperatorBase(odb, VariableNameMap(params.AliasFile.value())),
+  : LinearObsOperatorBase(odb, VariableNameMap(params.AliasFile.value(),
+                                               params.variableMaps.value())),
     odb_(odb), params_(params)
 {
   const std::vector<std::string> expectedVariables{"radialVelocity"};
@@ -83,8 +84,7 @@ void ObsRadarDopplerWindTLAD::setTrajectory(const GeoVaLs & gv,
 // -----------------------------------------------------------------------------
 
 void ObsRadarDopplerWindTLAD::simulateObsTL(const GeoVaLs & dx,
-                                            ioda::ObsVector & dy,
-                                            const QCFlags_t &) const {
+                                            ioda::ObsVector & dy) const {
   // This routine does the following:
   // - Retrieves GeoVaLs of u, v and w increments.
   // - Uses stored GeoVaLs of z.
@@ -141,6 +141,7 @@ void ObsRadarDopplerWindTLAD::simulateObsTL(const GeoVaLs & dx,
     const double dw = ufo::PiecewiseLinearInterpolation::interpolate(vec_z_w, inc_w, z_ob);
 
     // Combine u, v and w with beam geometry variable to produced final dH.
+    // (params_.terminalVelocity is a constant, so it drops out of the linearization)
     if (ufo::anyEqualTo(missingDouble, du, dv, dw)) {
       dy[jloc] = missingDouble;
     } else {
@@ -155,8 +156,7 @@ void ObsRadarDopplerWindTLAD::simulateObsTL(const GeoVaLs & dx,
 
 // -----------------------------------------------------------------------------
 
-void ObsRadarDopplerWindTLAD::simulateObsAD(GeoVaLs & dx, const ioda::ObsVector & dy,
-                                           const QCFlags_t &) const {
+void ObsRadarDopplerWindTLAD::simulateObsAD(GeoVaLs & dx, const ioda::ObsVector & dy) const {
   // This routine does the following:
   // - Retrieves GeoVaLs of u, v and w increments.
   // - Uses stored GeoVaLs of z.

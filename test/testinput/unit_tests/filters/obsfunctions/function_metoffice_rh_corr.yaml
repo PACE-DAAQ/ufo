@@ -1,6 +1,7 @@
 time window:
   begin: 2010-01-01T03:00:00Z
   end: 2010-01-01T09:00:00Z
+  bound to include: begin  # consistency with test data from "ncdiag"
 
 observations:
 - obs space: &obsspace
@@ -30,11 +31,8 @@ observations:
       function:
         name: ObsFunction/MetOfficeRelativeHumidityCorrection
         options:
-          model pressure: air_pressure
-          model specific humidity: water_vapor_mixing_ratio_wrt_moist_air
-          model relative humidity: relative_humidity
-          model temperature: air_temperature
           observed pressure: MetaData/pressure
+          output relative humidity units: percentage
   compareVariables:
   - reference:
       name: TestReference/relativeHumidity
@@ -58,11 +56,8 @@ observations:
       function:
         name: ObsFunction/MetOfficeRelativeHumidityCorrection
         options:
-          model pressure: air_pressure
-          model specific humidity: water_vapor_mixing_ratio_wrt_moist_air
-          model relative humidity: relative_humidity
-          model temperature: air_temperature
           observed pressure: MetaData/pressure
+          output relative humidity units: percentage
           capsupersat: true
   compareVariables:
   - reference:

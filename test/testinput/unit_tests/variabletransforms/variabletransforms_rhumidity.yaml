@@ -14,6 +14,7 @@ observations:
   - filter: Variable Transforms
     Transform: RelativeHumidity # calculate relative humidity from specific humidity (also T, P)
                                 # using Default method and default Formulation (Roger 1989)
+    observation relative humidity units: fraction
     specific humidity variable: specificHumidity
     temperature variable: airTemperature
     pressure variable: air_pressure
@@ -39,6 +40,7 @@ observations:
   - filter: Variable Transforms
     Transform: RelativeHumidity
     Method: Sonntag         # Using Sonntag formulation  (whihc is the default formulation for UKMO method)
+    observation relative humidity units: fraction
     specific humidity variable: specificHumidity
     temperature variable: airTemperature
     pressure variable: air_pressure
@@ -64,6 +66,7 @@ observations:
   - filter: Variable Transforms
     Transform: RelativeHumidity
     Method: Walko
+    observation relative humidity units: fraction
     specific humidity variable: specificHumidity
     temperature variable: airTemperature
     pressure variable: air_pressure
@@ -89,6 +92,7 @@ observations:
   - filter: Variable Transforms
     Transform: RelativeHumidity
     Method: Murphy
+    observation relative humidity units: fraction
     specific humidity variable: specificHumidity
     temperature variable: airTemperature
     pressure variable: air_pressure
@@ -114,6 +118,7 @@ observations:
   - filter: Variable Transforms
     Transform: RelativeHumidity # calculate relative humidity from specific humidity (also T, P)
                                 # using Default method and default Formulation (Roger 1989)
+    observation relative humidity units: fraction
     specific humidity variable: specificHumidity
     temperature variable: airTemperature
     pressure variable: air_pressure
@@ -130,7 +135,7 @@ observations:
 
 # Exercise the method using the Murphy saturation vapor pressure method.
 - obs space:
-    name: test_relative_humidity_formulation_exception
+    name: test_relative_humidity4
     obsdatain:
       engine:
         type: H5File
@@ -139,10 +144,10 @@ observations:
   obs filters:
   - filter: Variable Transforms
     Transform: RelativeHumidity
-    Formulation: Murphy
+    Method: Murphy
     specific humidity variable: specificHumidity
     temperature variable: airTemperature
     pressure variable: air_pressure
     pressure at 2m variable: stationPressure
     relative humidity variable: relativeHumidity
-  expectExceptionWithMessage: "Error: YAML validation failed."
+  expectExceptionWithMessage: Missing required parameter 'observation relative humidity units'

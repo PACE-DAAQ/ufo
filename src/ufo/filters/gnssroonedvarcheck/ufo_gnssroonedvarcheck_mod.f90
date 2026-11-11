@@ -1,5 +1,5 @@
 ! (C) Copyright 2017-2020 Met Office
-! 
+!
 ! this software is licensed under the terms of the apache licence version 2.0
 ! which can be obtained at http://www.apache.org/licenses/license-2.0.
 
@@ -11,7 +11,7 @@ use, intrinsic :: iso_c_binding
 use fckit_configuration_module, only: fckit_configuration
 use fckit_log_module, only : fckit_log
 use fckit_exception_module, only: fckit_exception
-use iso_c_binding
+use, intrinsic :: iso_c_binding
 use kinds
 use missing_values_mod
 use obsspace_mod
@@ -50,6 +50,8 @@ type, public :: ufo_gnssroonedvarcheck
   real(kind_real)           :: min_temp_grad     !< The minimum vertical temperature gradient allowed
   integer, allocatable      :: chanList(:)       !< List of channels (levels) to use
   logical                   :: noSuperCheck      !< If true then super-refraction check will not be used in operator
+  real(kind_real)           :: dryRefractivityConstant  !< Dry refractivity constant
+  real(kind_real)           :: wetRefractivityConstant  !< Wet refractivity constant
 end type ufo_gnssroonedvarcheck
 
 ! ------------------------------------------------------------------------------
@@ -68,7 +70,8 @@ subroutine ufo_gnssroonedvarcheck_create(self, obsspace, bmatrix_filename, &
                                          Delta_ct2, Delta_factor, min_temp_grad, &
                                          n_iteration_test, OB_test, pseudo_ops, &
                                          vert_interp_ops, y_test, onedvarflag, &
-                                         chanList, noSuperCheck)
+                                         chanList, noSuperCheck, dryRefractivityConstant, &
+                                         wetRefractivityConstant)
 
   implicit none
   type(ufo_gnssroonedvarcheck), intent(inout) :: self              !< gnssroonedvarcheck main object
@@ -87,6 +90,8 @@ subroutine ufo_gnssroonedvarcheck_create(self, obsspace, bmatrix_filename, &
   integer(c_int), intent(in)                  :: onedvarflag       !< flag for qc manager
   integer(c_int), intent(in)                  :: chanList(:)       !< List of channels to use
   logical(c_bool), intent(in)                 :: noSuperCheck      !< If true then don't use super-refraction check in operator
+  real(c_float), intent(in)                   :: dryRefractivityConstant  !< Dry refractivity constant
+  real(c_float), intent(in)                   :: wetRefractivityConstant  !< Wet refractivity constant
 
   character(len=800) :: message
   integer :: i
@@ -108,38 +113,44 @@ subroutine ufo_gnssroonedvarcheck_create(self, obsspace, bmatrix_filename, &
   allocate(self % chanList(1:SIZE(chanList)))
   self % chanList(1:SIZE(chanList)) = chanList(1:SIZE(chanList))
   self % noSuperCheck = noSuperCheck
+  self % dryRefractivityConstant = dryRefractivityConstant
+  self % wetRefractivityConstant = wetRefractivityConstant
 
-  write(message, '(A)') 'GNSS-RO 1D-Var check: input parameters are:'
+  write(message, "(A)") "GNSS-RO 1D-Var check: input parameters are:"
   call fckit_log % debug(message)
-  write(message, '(2A)') 'bmatrix_filename = ', bmatrix_filename
+  write(message, "(2A)") "bmatrix_filename = ", bmatrix_filename
   call fckit_log % debug(message)
-  write(message, '(A,L1)') 'capsupersat = ', capsupersat
+  write(message, "(A,L1)") "capsupersat = ", capsupersat
   call fckit_log % debug(message)
-  write(message, '(A,F16.8)') 'cost_funct_test = ', cost_funct_test
+  write(message, "(A,F16.8)") "cost_funct_test = ", cost_funct_test
   call fckit_log % debug(message)
-  write(message, '(A,F16.8)') 'Delta_ct2 = ', Delta_ct2
+  write(message, "(A,F16.8)") "Delta_ct2 = ", Delta_ct2
   call fckit_log % debug(message)
-  write(message, '(A,F16.8)') 'Delta_factor = ', Delta_factor
+  write(message, "(A,F16.8)") "Delta_factor = ", Delta_factor
   call fckit_log % debug(message)
-  write(message, '(A,F16.8)') 'min_temp_grad = ', min_temp_grad
+  write(message, "(A,F16.8)") "min_temp_grad = ", min_temp_grad
   call fckit_log % debug(message)
-  write(message, '(A,I7)') 'n_iteration_test = ', n_iteration_test
+  write(message, "(A,I7)") "n_iteration_test = ", n_iteration_test
   call fckit_log % debug(message)
-  write(message, '(A,F16.8)') 'OB_test = ', OB_test
+  write(message, "(A,F16.8)") "OB_test = ", OB_test
   call fckit_log % debug(message)
-  write(message, '(A,L1)') 'pseudo_ops = ', pseudo_ops
+  write(message, "(A,L1)") "pseudo_ops = ", pseudo_ops
   call fckit_log % debug(message)
-  write(message, '(A,L1)') 'vert_interp_ops = ', vert_interp_ops
+  write(message, "(A,L1)") "vert_interp_ops = ", vert_interp_ops
   call fckit_log % debug(message)
-  write(message, '(A,F16.8)') 'y_test = ', y_test
+  write(message, "(A,F16.8)") "y_test = ", y_test
   call fckit_log % debug(message)
-  write(message, '(A)') 'chanList = '
+  write(message, "(A)") "chanList = "
   call fckit_log % debug(message)
   do i = 1, SIZE(chanList), 100
-    write(message, '(100I5)') chanList(i:min(i+99, size(chanList)))
+    write(message, "(100I5)") chanList(i:min(i+99, size(chanList)))
     call fckit_log % debug(message)
   end do
-  write(message, '(A,L1)') 'no super check = ', noSuperCheck
+  write(message, "(A,L1)") "no super check = ", noSuperCheck
+  call fckit_log % debug(message)
+  write(message, "(A,F16.6)") "Dry refractivity constant = ", dryRefractivityConstant
+  call fckit_log % debug(message)
+  write(message, "(A,F16.6)") "Wet refractivity constant = ", wetRefractivityConstant
   call fckit_log % debug(message)
 
 end subroutine ufo_gnssroonedvarcheck_create
@@ -163,9 +174,9 @@ end subroutine ufo_gnssroonedvarcheck_delete
 ! ------------------------------------------------------------------------------
 !> The main routine that applys the GNSS-RO onedvar filter
 !!
-!! \details Heritage : 
+!! \details Heritage :
 !!
-!! This routine is called from the c++ apply method.  The filter performs 
+!! This routine is called from the c++ apply method.  The filter performs
 !! a 1D-Var minimization
 !!
 !! \author Met Office
@@ -224,21 +235,22 @@ subroutine ufo_gnssroonedvarcheck_apply(self, geovals, apply)
   integer                            :: nlevels               ! Number of vertical levels in the data
   integer                            :: ilevel                ! Loop variable, level number
   real(kind_real)                    :: missing               ! Missing data indicator (for reals)
+  integer(c_int), allocatable        :: qc_flags_dim_ids(:)   ! Dimensions of the qc_flags array in the obs-space
 !
 ! Diagnostics to push back to the obs-space
 !
-  integer, allocatable               :: indices(:)            ! The indices of the diagnostic elements to be updated
   integer, allocatable               :: niter(:)              ! Number of iterations required to converge
   real(kind_real), allocatable       :: initial_cost(:)       ! Initial cost-function value
   real(kind_real), allocatable       :: final_cost(:)         ! Final cost-function value
   real(kind_real), allocatable       :: dfs_list(:)           ! Degrees of freedom for signal
+  integer                            :: ind
 
   ! Get the obs-space information
   nobs = obsspace_get_nlocs(self % obsdb)
   nlevels = max(1, obsspace_get_nchans(self % obsdb))
 
   if (nlevels > 1 .AND. nlevels /= SIZE(self % chanList)) then
-    write(Message,'(a,2I5)') 'nChans should equal length of channel list', nlevels, SIZE(self % chanList)
+    write(Message,"(a,2I5)") "nChans should equal length of channel list", nlevels, SIZE(self % chanList)
     call fckit_exception%throw(Message)
   end if
 
@@ -266,12 +278,18 @@ subroutine ufo_gnssroonedvarcheck_apply(self, geovals, apply)
   call obsspace_get_db(self % obsdb, "ObsValue", "bendingAngle", obs_bending_angle)
   call obsspace_get_recnum(self % obsdb, record_number)
 
+  ! qc_flags is allocated as (nlevels * nobs). When nlevels > 1 that is a
+  ! [Location, Channel] array, and it must be declared as such when it is written back
+  ! (see the obsspace_put_db call at the end of this routine). Declaring it as
+  ! Location-only would be a mis-statement of its shape.
   if (nlevels > 1) then
+    qc_flags_dim_ids = [obsspace_get_location_dim_id(), obsspace_get_channel_dim_id()]
     call obsspace_get_db(self % obsdb, "FortranQC", "bendingAngle", qc_flags, self % chanList)
     call obsspace_get_db(self % obsdb, "MetaData", "impactParameterRO", impact_param, self % chanList)
     call obsspace_get_db(self % obsdb, "ObsValue", "bendingAngle", obs_bending_angle, self % chanList)
     call obsspace_get_db(self % obsdb, "FortranERR", "bendingAngle", obs_err, self % chanList)
   else
+    qc_flags_dim_ids = [obsspace_get_location_dim_id()]
     call obsspace_get_db(self % obsdb, "FortranQC", "bendingAngle", qc_flags)
     call obsspace_get_db(self % obsdb, "MetaData", "impactParameterRO", impact_param)
     call obsspace_get_db(self % obsdb, "ObsValue", "bendingAngle", obs_bending_angle)
@@ -314,15 +332,15 @@ subroutine ufo_gnssroonedvarcheck_apply(self, geovals, apply)
   do iprofile = 1, size(unique)
     start_point = current_point
     iobs = 1 + ((index_vals(start_point) - 1) / nlevels)
-    WRITE (Message, '(A,I0)') 'ObNumber ', iprofile
+    WRITE (Message, "(A,I0)") "ObNumber ", iprofile
     call fckit_log % info(Message)
-    WRITE (Message, '(A,F12.2)') 'Latitude ', obsLat(iobs)
+    WRITE (Message, "(A,F12.2)") "Latitude ", obsLat(iobs)
     call fckit_log % info(Message)
-    WRITE (Message, '(A,F12.2)') 'Longitude ', obsLon(iobs)
+    WRITE (Message, "(A,F12.2)") "Longitude ", obsLon(iobs)
     call fckit_log % info(Message)
-    WRITE (Message, '(A,I0)') 'Processing centre ', obsOrigC(iobs)
+    WRITE (Message, "(A,I0)") "Processing centre ", obsOrigC(iobs)
     call fckit_log % info(Message)
-    WRITE (Message, '(A,I0)') 'Sat ID ', obsSatid(iobs)
+    WRITE (Message, "(A,I0)") "Sat ID ", obsSatid(iobs)
     call fckit_log % info(Message)
 
     ! Work out which observations belong to the current profile
@@ -383,6 +401,8 @@ subroutine ufo_gnssroonedvarcheck_apply(self, geovals, apply)
                               self % OB_test,          &   ! Threshold value for the O-B test
                               self % capsupersat,      &   ! Whether to remove super-saturation
                               self % noSuperCheck,     &   ! If true then don't use super-refraction check in operator
+                              self % dryRefractivityConstant, & ! Dry refractivity constant
+                              self % wetRefractivityConstant, & ! Wet refractivity constant
                               BAerr,                   &   ! Whether there are errors in the bending angle calculation
                               Tb,                      &   ! Calculated background temperature
                               Ts,                      &   ! 1DVar solution temperature
@@ -391,41 +411,39 @@ subroutine ufo_gnssroonedvarcheck_apply(self, geovals, apply)
 
     ! Flag bad profiles
     do ipoint = 0, nobs_profile-1
-      if (qc_flags(start_point + ipoint) > 0) then
+      if (qc_flags(index_vals(start_point + ipoint)) > 0) then
         ! Do nothing, since the data are already flagged
       else if (Ob % bendingangle(ipoint+1) % PGEFinal > 0.5) then
-        qc_flags(start_point + ipoint) = self % onedvarflag
+        qc_flags(index_vals(start_point + ipoint)) = self % onedvarflag
         Ob % qc_flags(ipoint+1) = self % onedvarflag
       end if
     end do
 
     if (verboseOutput) then
       do ipoint = 0, nobs_profile-1, 20
-          write(Message,'(20I5)') qc_flags(index_vals(start_point+ipoint: &
+          write(Message,"(20I5)") qc_flags(index_vals(start_point+ipoint: &
                                                       min(start_point+ipoint+19, current_point-1)))
           call fckit_log % debug(Message)
       end do
       do ipoint = 0, nobs_profile-1, 10
-          write(Message,'(10E16.5)') obs_bending_angle(index_vals(start_point+ipoint: &
+          write(Message,"(10E16.5)") obs_bending_angle(index_vals(start_point+ipoint: &
                                                                min(start_point+ipoint+9, current_point-1)))
           call fckit_log % debug(Message)
       end do
     end if
 
     ! Save the diagnostic information
-    allocate(indices(1:nobs_profile))
     do ipoint = 0, nobs_profile-1
-      indices(ipoint+1) = 1 + ((index_vals(start_point+ipoint) - 1) / nlevels)
+      ind = 1 + ((index_vals(start_point+ipoint) - 1) / nlevels)
+      niter(ind) = Ob % niter
+      initial_cost(ind) = O_Bdiff
+      final_cost(ind) = Ob % jcost
+      dfs_list(ind) = DFS
     end do
-    niter(indices) = Ob % niter
-    initial_cost(indices) = O_Bdiff
-    final_cost(indices) = Ob % jcost
-    dfs_list(indices) = DFS
-    deallocate(indices)
 
     call deallocate_singleob(Ob)
   end do
-  call obsspace_put_db(self % obsdb, "FortranQC", "bendingAngle", qc_flags)
+  call obsspace_put_db(self % obsdb, "FortranQC", "bendingAngle", qc_flags, qc_flags_dim_ids)
 
   ! Save the diagnostics to the obs-space
   call obsspace_put_db(self % obsdb, "OneDVarDiags", "nIter", niter)

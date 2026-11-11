@@ -16,6 +16,8 @@
 #include <memory>
 #include <vector>
 
+#include "ioda/ObsDataVector.h"
+
 #include "ufo/filters/refractivityonedvarcheck/RefractivityOneDVarCheck.h"
 #include "ufo/filters/refractivityonedvarcheck/RefractivityOneDVarCheck.interface.h"
 #include "ufo/GeoVaLs.h"
@@ -29,8 +31,8 @@ namespace ufo {
 RefractivityOneDVarCheck::RefractivityOneDVarCheck(
   ioda::ObsSpace & obsdb,
   const Parameters_ & parameters,
-  std::shared_ptr<ioda::ObsDataVector<int> > flags,
-  std::shared_ptr<ioda::ObsDataVector<float> > obserr
+  ioda::ObsDataVector<int> & flags,
+  ioda::ObsDataVector<float> & obserr
 )
   : FilterBase(obsdb, parameters, flags, obserr), parameters_(parameters)
 {
@@ -56,6 +58,8 @@ RefractivityOneDVarCheck::RefractivityOneDVarCheck(
     parameters_.y_test.value(),
     parameters_.minval_ytest.value(),
     parameters_.maxval_ytest.value(),
+    parameters_.dryRefractivityConstant.value(),
+    parameters_.wetRefractivityConstant.value(),
     RefractivityOneDVarCheck::qcFlag());
 
   allvars_ += Variable("GeoVaLs/air_pressure_levels");
@@ -92,8 +96,8 @@ void RefractivityOneDVarCheck::applyFilter(
   }
 
   // Save qc flags to database for retrieval in fortran - needed for channel selection
-  flags_->save("FortranQC");      // temporary measure as per ROobserror qc
-  obserr_->save("FortranERR");    // Pass latest errors to 1DVar
+  flags_.save("FortranQC");      // temporary measure as per ROobserror qc
+  obserr_.save("FortranERR");    // Pass latest errors to 1DVar
 
   // Pass it all to fortran
   ufo_refractivityonedvarcheck_apply_f90(
@@ -103,7 +107,7 @@ void RefractivityOneDVarCheck::applyFilter(
     apply_char[0]);
 
   // Read qc flags from database
-  flags_->read("FortranQC");    // temporary measure as per ROobserror qc
+  flags_.read("FortranQC");    // temporary measure as per ROobserror qc
 
   oops::Log::trace() << "RefractivityOneDVarCheck Filter complete" << std::endl;
 }

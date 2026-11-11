@@ -1,14 +1,14 @@
 ! (C) Copyright 2017-2018 UCAR
-! 
+!
 ! This software is licensed under the terms of the Apache Licence Version 2.0
-! which can be obtained at http://www.apache.org/licenses/LICENSE-2.0. 
+! which can be obtained at http://www.apache.org/licenses/LICENSE-2.0.
 
 !> Fortran module for gnssro bending angle ropp2d forward operator
 !> following the ROPP (2018 Aug) implementation
 
 module ufo_gnssro_bndropp2d_mod
 
-use fckit_configuration_module, only: fckit_configuration 
+use fckit_configuration_module, only: fckit_configuration
 !use iso_c_binding
 use kinds
 use ufo_vars_mod
@@ -21,7 +21,7 @@ use ufo_gnssro_ropp2d_utils_mod
 use ufo_gnssro_ropp1d_utils_mod
 
 use gnssro_mod_conf
-use fckit_log_module,  only : fckit_log
+use logger_mod, only: oops_log
 
 implicit none
 public             :: ufo_gnssro_bndropp2d
@@ -96,8 +96,8 @@ subroutine ufo_gnssro_bndropp2d_simobs(self, geovals, hofx, obss)
   ro_type = self%roconf%ro_type
   use_compress = self%roconf%use_compress
 
-  write(err_msg,*) "TRACE: ufo_gnssro_bndropp2d_simobs: begin"
-  call fckit_log%debug(err_msg)
+  write(err_msg,*) "ufo_gnssro_bndropp2d_simobs: begin"
+  call oops_log%trace(err_msg)
 
 #ifndef ropp_aro
 ! airborne ro_type can only be used with the ROPP ropp_fm_bangle_2d_aro routine.
@@ -105,11 +105,11 @@ subroutine ufo_gnssro_bndropp2d_simobs(self, geovals, hofx, obss)
 ! is available, the compilation must include the -Dropp_aro argument
 ! in the command line, to link with the ropp_fm_bangle_2d_aro routine.
 ! Abort now if ro_type is airborne but the routine is not available
-  if ( ro_type .eq. "airborne" ) then
+  if ( ro_type == "airborne" ) then
      write(err_msg,*) myname_, ' ERROR: option "ro_type = airborne"',&
    ' requires compiling UFO with the "-Dropp_aro" cpp argument'
      call abor1_ftn(err_msg)
-  endif
+  end if
 #endif
 
 ! get variables from geovals
@@ -123,21 +123,21 @@ subroutine ufo_gnssro_bndropp2d_simobs(self, geovals, hofx, obss)
   if (t%nprofiles /= size(hofx)*n_horiz .or. q%nprofiles /= size(hofx)*n_horiz .or. &
       prs%nprofiles /= size(hofx)*n_horiz .or. gph%nprofiles /= size(hofx)*n_horiz .or. &
       gph_sfc%nprofiles /= size(hofx)*n_horiz) then
-     write(err_msg,*) myname_, ' error: npaths inconsistent!'
+     write(err_msg,*) myname_, " error: npaths inconsistent!"
      call abor1_ftn(err_msg)
-  endif
+  end if
 
   missing = missing_value(missing)
   nlev    = t%nval ! number of model levels
   nlocs   = obsspace_get_nlocs(obss)
 
   iflip = 0
-  if (prs%vals(1,1) .lt. prs%vals(prs%nval,1) ) then
+  if (prs%vals(1,1) < prs%vals(prs%nval,1) ) then
     iflip = 1
-    write(err_msg,'(a)') '  ufo_gnssro_bndropp2d_simobs:'//new_line('a')//                         &
-                         '  Model vertical height profile is in descending order,'//new_line('a')// &
-                         '  but ROPP requires it to be ascending order, need flip'
-    call fckit_log%debug(err_msg)
+    write(err_msg,"(a)") "  ufo_gnssro_bndropp2d_simobs:"//new_line("a")//                         &
+                         "  Model vertical height profile is in descending order,"//new_line("a")// &
+                         "  but ROPP requires it to be ascending order, need flip"
+    call oops_log%debug(err_msg)
   end if
 
 ! set obs space struture
@@ -166,7 +166,7 @@ subroutine ufo_gnssro_bndropp2d_simobs(self, geovals, hofx, obss)
 
   do i = 1, nlocs
     geop(i) = geometric2geopotential(obsLat(i), obsAlt(i))
-  enddo
+  end do
 
   y2%refrac = obsRef(:)
   y2%geop = geop(:)
@@ -175,8 +175,8 @@ subroutine ufo_gnssro_bndropp2d_simobs(self, geovals, hofx, obss)
   ob_time = 0.0
   allocate(ichk(nvprof))
   ichk(:) = 0
-  write(err_msg,*) "TRACE: ufo_gnssro_bndropp2d_simobs: begin observation loop, nlocs =  ", nlocs
-  call fckit_log%debug(err_msg)
+  write(err_msg,*) "ufo_gnssro_bndropp2d_simobs: begin observation loop, nlocs =  ", nlocs
+  call oops_log%trace(err_msg)
 
 ! loop through the obs
   obs_loop: do iobs = 1, nlocs
@@ -200,11 +200,11 @@ subroutine ufo_gnssro_bndropp2d_simobs(self, geovals, hofx, obss)
                    obsGeoid(iobs),         &
                              y)
 
-      if ( ro_type .eq. "airborne" ) then
+      if ( ro_type == "airborne" ) then
 #ifdef ropp_aro
         call ropp_fm_bangle_2d_aro(x,y,y2)
 #else
-        write(err_msg,*) myname_, ' ERROR: option "ro_type = airborne"',& 
+        write(err_msg,*) myname_, ' ERROR: option "ro_type = airborne"',&
       ' requires compiling UFO with the "-Dropp_aro" cpp argument'
         call abor1_ftn(err_msg)
 #endif
@@ -239,7 +239,7 @@ subroutine ufo_gnssro_bndropp2d_simobs(self, geovals, hofx, obss)
     end if
 
 !   hack -- handling ropp missing value
-    if (y%bangle(nvprof) .lt. -900.0_wp ) then
+    if (y%bangle(nvprof) < -900.0_wp ) then
        hofx(iobs) = missing
        y%bangle(nvprof) = missing
     else
@@ -271,8 +271,8 @@ subroutine ufo_gnssro_bndropp2d_simobs(self, geovals, hofx, obss)
   deallocate(y2%refrac)
   deallocate(y2%geop)
 
-  write(err_msg,*) "TRACE: ufo_gnssro_bndropp2d_simobs: complete"
-  call fckit_log%debug(err_msg)
+  write(err_msg,*) "ufo_gnssro_bndropp2d_simobs: complete"
+  call oops_log%trace(err_msg)
 
 end subroutine ufo_gnssro_bndropp2d_simobs
 ! ------------------------------------------------------------------------------

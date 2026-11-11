@@ -79,14 +79,14 @@ namespace ufo {
     // In order to correctly handle MPI ranks with zero entries,
     // ensure that all of the variables defined above have been added to the ObsSpace
     // on each rank. This prevents a hang when saving the ObsSpace.
-    for (const auto variableInt : variableNamesInt) {
-      const auto & vectorInt = profileDataHandler.get<int>(variableInt);
+    for (const auto & variableInt : variableNamesInt) {
+      profileDataHandler.get<int>(variableInt);
     }
-    for (const auto variableFloat : variableNamesFloat) {
-      const auto & vectorFloat = profileDataHandler.get<float>(variableFloat);
+    for (const auto & variableFloat : variableNamesFloat) {
+      profileDataHandler.get<float>(variableFloat);
     }
-    for (const auto variableBool : variableNamesBool) {
-      const auto & vectorBool = profileDataHandler.get<bool>(variableBool);
+    for (const auto & variableBool : variableNamesBool) {
+      profileDataHandler.get<bool>(variableBool);
     }
 
     std::vector <ProfileDataHolder> profiles =
@@ -290,8 +290,8 @@ namespace ufo {
       diagFlagVectorsTModObs[diagFlagNameT] = {};
     }
     std::vector <bool> diagFlagsTPartialLayerModObs;
-    std::vector <float> LogP_Min;  // Min log(pressure) used in layer average.
-    std::vector <float> LogP_Max;  // Max log(pressure) used in layer average.
+    std::vector <float> LogP_Min;  // Min std::log(pressure) used in layer average.
+    std::vector <float> LogP_Max;  // Max std::log(pressure) used in layer average.
     // Minimum fraction of a model layer that must have been covered (in the vertical coordinate)
     // by observed values in order for averaging onto that layer to be performed.
     const float SondeDZFraction = options_.AvgT_SondeDZFraction.value();

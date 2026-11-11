@@ -19,6 +19,7 @@
 
 #include "ioda/ObsDataVector.h"
 #include "oops/util/IntSetParser.h"
+#include "oops/util/Logger.h"
 #include "oops/util/missingValues.h"
 #include "ufo/filters/Variable.h"
 #include "ufo/utils/Constants.h"
@@ -153,7 +154,7 @@ void CloudDetectMinResidualAVHRR::compute(const ObsFilterData & in,
     in.get(Variable(flaggrp+"/brightnessTemperature", channels_)[ichan], qcflag);
     for (size_t iloc = 0; iloc < nlocs; ++iloc) {
       if (flaggrp == "PreQC") values[iloc] == missing ? qcflag[iloc] = 100 : qcflag[iloc] = 0;
-      (qcflag[iloc] == 0) ? (values[iloc] = 1.0 / pow(values[iloc], 2)) : (values[iloc] = 0.0);
+      (qcflag[iloc] == 0) ? (values[iloc] = 1.0 / std::pow(values[iloc], 2)) : (values[iloc] = 0.0);
       if (use_flag_clddet[ichan] > 0 && use_flag_clddet[ichan]%2 == 1)
           varinv_use[ichan][iloc] = values[iloc];
     }
@@ -235,7 +236,6 @@ void CloudDetectMinResidualAVHRR::compute(const ObsFilterData & in,
 
   // Minimum Residual Method (MRM) for Cloud Detection:
   // Determine model level index of the cloud top (lcloud)
-  // Find pressure of the cloud top (cldprs)
   // Estimate cloud fraction (cldfrac)
   // output: out = 0 clear channel
   //         out = 1 cloudy channel
@@ -259,8 +259,12 @@ void CloudDetectMinResidualAVHRR::compute(const ObsFilterData & in,
       dtempf = dtempf_in[2];
     } else if (snow) {
       dtempf = dtempf_in[3];
-    } else {
+    } else if (mixed) {
       dtempf = dtempf_in[4];
+    } else {
+      std::string errString = "The surface type is not defined for location: ";
+      oops::Log::error() << errString  << iloc << std::endl;
+      throw eckit::BadValue(errString);
     }
     std::vector<std::vector<float>> dbt(nchans, std::vector<float>(nlevs));
     for (size_t ichan=0; ichan < nchans; ++ichan) {
@@ -273,7 +277,6 @@ void CloudDetectMinResidualAVHRR::compute(const ObsFilterData & in,
     // Set initial cloud condition
     int lcloud = 0;
     float cldfrac = 0.0;
-    float cldprs = prsl[0][iloc] * 0.01;     // convert from [Pa] to [hPa]
 
     // Loop through vertical layer from surface to model top
     for (size_t k = 0 ; k < nlevs ; ++k) {
@@ -292,7 +295,7 @@ void CloudDetectMinResidualAVHRR::compute(const ObsFilterData & in,
             sum2 = sum2 +  dbt[ichan][k] * dbt[ichan][k] * varinv_use[ichan][iloc];
           }
         }
-        if (fabs(sum2) < FLT_MIN) sum2 = copysign(1.0e-12, sum2);
+        if (std::fabs(sum2) < FLT_MIN) sum2 = copysign(1.0e-12, sum2);
         cloudp = std::min(std::max((sum/sum2), 0.f), 1.f);
         sum = 0.0;
         for (size_t ichan = 0; ichan < nchans; ++ichan) {
@@ -305,7 +308,6 @@ void CloudDetectMinResidualAVHRR::compute(const ObsFilterData & in,
           sum3 = sum;
           lcloud = k + 1;   // array index + 1 -> model coordinate index
           cldfrac = cloudp;
-          cldprs = prsl[k][iloc] * 0.01;
         }
       }
     // end of vertical loop
@@ -315,7 +317,7 @@ void CloudDetectMinResidualAVHRR::compute(const ObsFilterData & in,
       size_t ilev;
       out[ichan][iloc] = 0;
       for (ilev = 0; ilev < lcloud; ++ilev) {
-        if (fabs(cldfrac * dbt[ichan][ilev]) > criteria4clddet[ichan]) {
+        if (std::fabs(cldfrac * dbt[ichan][ilev]) > criteria4clddet[ichan]) {
           out[ichan][iloc]= 1;
           varinv_use[ichan][iloc]= 0.0;
           break;
@@ -332,9 +334,8 @@ void CloudDetectMinResidualAVHRR::compute(const ObsFilterData & in,
       sumx = sumx + innovation[ichan][iloc] * dbtdts[ichan][iloc] * varinv_use[ichan][iloc];
       sumx2 = sumx2 + dbtdts[ichan][iloc] * dbtdts[ichan][iloc] * varinv_use[ichan][iloc];
     }
-    if (fabs(sumx2) < FLT_MIN) sumx2 = copysign(1.0e-12, sumx2);
+    if (std::fabs(sumx2) < FLT_MIN) sumx2 = copysign(1.0e-12, sumx2);
     dts = std::fabs(sumx / sumx2);
-    float dts_save = dts;
     if (std::abs(dts) > 1.0) {
       if (sea == false) {
         dts = std::min(dtempf, dts);

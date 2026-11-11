@@ -16,6 +16,7 @@
 
 #include <boost/optional.hpp>
 
+#include "eckit/mpi/Comm.h"
 #include "ioda/ObsDataVector.h"
 #include "oops/util/ObjectCounter.h"
 #include "ufo/filters/FilterBase.h"
@@ -52,8 +53,8 @@ class PoissonDiskThinning : public FilterBase,
   static const std::string classname() {return "ufo::PoissonDiskThinning";}
 
   PoissonDiskThinning(ioda::ObsSpace &obsdb, const Parameters_ &parameters,
-                      std::shared_ptr<ioda::ObsDataVector<int> > flags,
-                      std::shared_ptr<ioda::ObsDataVector<float> > obserr);
+                      ioda::ObsDataVector<int> & flags,
+                      ioda::ObsDataVector<float> & obserr);
 
   ~PoissonDiskThinning() override;
 

@@ -8,7 +8,7 @@
 module ufo_rttovonedvarcheck_minimize_utils_mod
 
 use fckit_log_module, only : fckit_log
-use iso_c_binding
+use, intrinsic :: iso_c_binding
 use kinds
 use oops_variables_mod
 use ufo_constants_mod, only: grav, zero, half, one, two, Pa_to_hPa
@@ -19,7 +19,7 @@ use ufo_rttovonedvarcheck_profindex_mod
 use ufo_rttovonedvarcheck_rsubmatrix_mod
 use ufo_rttovonedvarcheck_setup_mod, only: ufo_rttovonedvarcheck
 use ufo_vars_mod
-use ufo_utils_mod, only: Ops_SatRad_Qsplit, Ops_QSat, Ops_QSatWat, cmp_strings
+use ufo_utils_mod, only: Ops_SatRad_Qsplit, Ops_QSat, Ops_QSatWat
 
 implicit none
 private
@@ -111,7 +111,7 @@ end if
 if (profindex % qt(1) > 0) then
   allocate(humidity_total(nlevels))
   humidity_total(:) = zero
-  
+
   ! Get humidity data from geovals
   call ufo_geovals_get_var(geovals, var_q, geoval)
   humidity_total(:) = humidity_total(:) + geoval%vals(:, 1)
@@ -119,7 +119,7 @@ if (profindex % qt(1) > 0) then
   humidity_total(:) = humidity_total(:) + geoval%vals(:, 1)
   call ufo_geovals_get_var(geovals, var_cli, geoval)
   humidity_total(:) = humidity_total(:) + geoval%vals(:, 1)
-  
+
   ! Convert from kg/kg to ln(g/kg)
   prof_x(profindex % qt(1):profindex % qt(2)) = log (humidity_total * 1000.0_kind_real) ! ln(g/kg)
 
@@ -211,7 +211,7 @@ end subroutine ufo_rttovonedvarcheck_GeoVaLs2ProfVec
 !!
 !! \details Heritage: Ops_SatRad_Vec2RTprof_RTTOV12.f90
 !!
-!! Convert profile data to the GeoVaLs (and ob) format.  We only copy fields 
+!! Convert profile data to the GeoVaLs (and ob) format.  We only copy fields
 !! that are being retrieved, as indicated by the profindex structure.
 !!
 !! \author Met Office
@@ -264,7 +264,7 @@ nlevels = profindex % nlevels
 if (profindex % t(1) > 0) then
   gv_index = 0
   do i=1,geovals%nvar
-    if (cmp_strings(var_ts, geovals%variables(i))) gv_index = i
+    if (var_ts == geovals%variables(i)) gv_index = i
   end do
   geovals%geovals(gv_index)%vals(:,1) = prof_x(profindex % t(1):profindex % t(2)) ! K
 end if
@@ -274,7 +274,7 @@ end if
 if (profindex % q(1) > 0) then
   gv_index = 0
   do i=1,geovals%nvar
-    if (cmp_strings(var_q, geovals%variables(i))) gv_index = i
+    if (var_q == geovals%variables(i)) gv_index = i
   end do
   geovals%geovals(gv_index)%vals(:,1) = EXP (prof_x(profindex % q(1):profindex % q(2))) / &
                                              1000.0_kind_real ! ln(g/kg) => kg/kg
@@ -291,7 +291,7 @@ if (profindex % qt(1) > 0) then
   allocate(q(nlevels))
   allocate(ql(nlevels))
   allocate(qi(nlevels))
-  
+
   ! Convert from ln(g/kg) to kg/kg
   humidity_total(:) = EXP (prof_x(profindex % qt(1):profindex % qt(2))) / &
                            1000.0_kind_real ! ln(g/kg) => kg/kg
@@ -313,19 +313,19 @@ if (profindex % qt(1) > 0) then
   ! Assign values to geovals
   gv_index = 0
   do i=1,geovals%nvar
-    if (cmp_strings(var_q, geovals%variables(i))) gv_index = i
+    if (var_q == geovals%variables(i)) gv_index = i
   end do
   geovals%geovals(gv_index)%vals(:,1) = q(:)
 
   gv_index = 0
   do i=1,geovals%nvar
-    if (cmp_strings(var_clw, geovals%variables(i))) gv_index = i
+    if (var_clw == geovals%variables(i)) gv_index = i
   end do
   geovals%geovals(gv_index)%vals(:,1) = ql(:)
 
   gv_index = 0
   do i=1,geovals%nvar
-    if (cmp_strings(var_cli, geovals%variables(i))) gv_index = i
+    if (var_cli == geovals%variables(i)) gv_index = i
   end do
   geovals%geovals(gv_index)%vals(:,1) = qi(:)
 
@@ -345,7 +345,7 @@ end if
 if (profindex % t2 > 0) then
   gv_index = 0
   do i=1,geovals%nvar
-    if (cmp_strings(var_sfc_t2m, geovals%variables(i))) gv_index = i
+    if (var_sfc_t2m == geovals%variables(i)) gv_index = i
   end do
   geovals%geovals(gv_index)%vals(1,1) = prof_x(profindex % t2) ! K
 end if
@@ -355,7 +355,7 @@ end if
 if (profindex % q2 > 0) then
   gv_index = 0
   do i=1,geovals%nvar
-    if (cmp_strings(var_sfc_q2m, geovals%variables(i))) gv_index = i
+    if (var_sfc_q2m == geovals%variables(i)) gv_index = i
   end do
   geovals%geovals(gv_index)%vals(1,1) = EXP (prof_x(profindex % q2)) / 1000.0_kind_real ! ln(g/kg) => kg/kg
 end if
@@ -364,7 +364,7 @@ end if
 if (profindex % pstar > 0) then
   gv_index = 0
   do i=1,geovals%nvar
-    if (cmp_strings(var_ps, geovals%variables(i))) gv_index = i
+    if (var_ps == geovals%variables(i)) gv_index = i
   end do
   geovals%geovals(gv_index)%vals(1,1) = prof_x(profindex % pstar) * 100.0_kind_real
 end if
@@ -373,7 +373,7 @@ end if
 if (profindex % tstar > 0) then
   gv_index = 0
   do i=1,geovals%nvar
-    if (cmp_strings(var_sfc_tskin, geovals%variables(i))) gv_index = i
+    if (var_sfc_tskin == geovals%variables(i)) gv_index = i
   end do
   geovals%geovals(gv_index)%vals(1,1) = prof_x(profindex % tstar)
 end if
@@ -935,13 +935,13 @@ character(len=3) :: txt_nchans, txt_nprof
 character(len=10) :: int_fmt
 
 obs_size = size(yob)
-write( unit=txt_nchans,fmt='(i3)' ) obs_size
-write( unit=chans_fmt,fmt='(a)' ) '(' // trim(txt_nchans) // 'E30.16)'
-write( unit=int_fmt,fmt='(a)' ) '(' // trim(txt_nchans) // 'I30)'
+write( unit=txt_nchans,fmt="(i3)" ) obs_size
+write( unit=chans_fmt,fmt="(a)" ) "(" // trim(txt_nchans) // "E30.16)"
+write( unit=int_fmt,fmt="(a)" ) "(" // trim(txt_nchans) // "I30)"
 
 profile_size = size(guessprofile)
-write( unit=txt_nprof,fmt='(i3)' ) profile_size
-write( unit=prof_fmt,fmt='(a)' ) '(' // trim(txt_nprof) // 'E30.16)'
+write( unit=txt_nprof,fmt="(i3)" ) profile_size
+write( unit=prof_fmt,fmt="(a)" ) "(" // trim(txt_nprof) // "E30.16)"
 
 write(*,*) "Start print iter info"
 

@@ -7,7 +7,7 @@
 module ufo_gnssroonedvarcheck_mod_c
 
 use fckit_configuration_module, only: fckit_configuration
-use iso_c_binding
+use, intrinsic :: iso_c_binding
 use oops_variables_mod
 use ufo_geovals_mod
 use ufo_geovals_mod_c,   only: ufo_geovals_registry
@@ -48,8 +48,10 @@ subroutine ufo_gnssroonedvarcheck_create_c(c_self, &
                                            c_onedvarflag, &
                                            nchans, &
                                            chanList, &
-                                           noSuperCheck) &
-                        bind(c,name='ufo_gnssroonedvarcheck_create_f90')
+                                           noSuperCheck, &
+                                           dryRefractivityConstant, &
+                                           wetRefractivityConstant) &
+                        bind(c,name="ufo_gnssroonedvarcheck_create_f90")
 
 !> \brief Interface to the Fortran create method
 !!
@@ -79,6 +81,8 @@ integer(c_int), intent(in)                :: c_onedvarflag     !< flag for qc ma
 integer(c_int), intent(in)                :: nchans            !< Number of channels (levels) to be used
 integer(c_int), intent(in)                :: chanList(nchans)  !< List of channels to use
 logical(c_bool), intent(in)               :: noSuperCheck      !< Whether to avoid using super-refraction check in operator
+real(c_float), intent(in)                 :: dryRefractivityConstant  !< Dry refractivity constant
+real(c_float), intent(in)                 :: wetRefractivityConstant  !< Wet refractivity constant
 
 character(len=filename_length) :: bmatrix_filename  ! Location of the B-matrix file
 integer(c_int), allocatable    :: localChanList(:)  ! Allocated list of channels (even if nchans=0)
@@ -113,14 +117,16 @@ call ufo_gnssroonedvarcheck_create(self, &
                                    y_test, &
                                    c_onedvarflag, &
                                    localChanList, &
-                                   noSuperCheck)
+                                   noSuperCheck, &
+                                   dryRefractivityConstant, &
+                                   wetRefractivityConstant)
 
 end subroutine ufo_gnssroonedvarcheck_create_c
 
 ! ------------------------------------------------------------------------------------------------
 
 subroutine ufo_gnssroonedvarcheck_delete_c(c_self) &
-                      bind(c,name='ufo_gnssroonedvarcheck_delete_f90')
+                      bind(c,name="ufo_gnssroonedvarcheck_delete_f90")
 
 !> \brief Interface to the Fortran delete method
 !!
@@ -143,7 +149,7 @@ end subroutine ufo_gnssroonedvarcheck_delete_c
 ! ------------------------------------------------------------------------------------------------
 
 subroutine ufo_gnssroonedvarcheck_apply_c(c_self, c_geovals, c_nobs, c_apply) &
-               bind(c,name='ufo_gnssroonedvarcheck_apply_f90')
+               bind(c,name="ufo_gnssroonedvarcheck_apply_f90")
 
 !> \brief Interface to filter apply method
 !!
@@ -167,7 +173,7 @@ call ufo_geovals_registry%get(c_geovals, geovals)
 
 ! Convert character to logical for passing to Fortran
 apply(:) = .false.
-where (c_apply == 'T')
+where (c_apply == "T")
   apply = .true.
 end where
 

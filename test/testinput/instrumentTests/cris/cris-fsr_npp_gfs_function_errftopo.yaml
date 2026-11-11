@@ -1,6 +1,7 @@
 time window:
   begin: 2020-12-01T09:00:00Z
   end: 2020-12-01T15:00:00Z
+  bound to include: begin  # consistency with test data from "ncdiag"
 
 observations:
 - obs space:
@@ -53,7 +54,7 @@ observations:
     name: ObsFunction/ObsErrorFactorTopoRad
     options:
       channels: *all_channels
-      sensor: cris-fsr_npp
+      sensor: infrared
     variables: [error_inflation_factor_topo]
     channels: *all_channels
     tolerance: 1.0e-8

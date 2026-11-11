@@ -11,6 +11,7 @@
 #include <memory>
 #include <ostream>
 #include <string>
+#include <vector>
 
 #include "ioda/ObsDataVector.h"
 #include "oops/base/ObsVariables.h"
@@ -45,8 +46,8 @@ class ObsADTTLAD : public LinearObsOperatorBase,
 
   // Obs Operators
   void setTrajectory(const GeoVaLs &, ObsDiagnostics &, const QCFlags_t &) override;
-  void simulateObsTL(const GeoVaLs &, ioda::ObsVector &, const QCFlags_t &) const override;
-  void simulateObsAD(GeoVaLs &, const ioda::ObsVector &, const QCFlags_t &) const override;
+  void simulateObsTL(const GeoVaLs &, ioda::ObsVector &) const override;
+  void simulateObsAD(GeoVaLs &, const ioda::ObsVector &) const override;
 
   // Other
   const oops::Variables & requiredVars() const override {return requiredVars_;}
@@ -58,6 +59,10 @@ class ObsADTTLAD : public LinearObsOperatorBase,
   const ioda::ObsSpace& odb_;
   oops::ObsVariables operatorVars_;
   int operatorVarIndex_;
+  // Cached at setTrajectory: mask for the observations that define the
+  // global-mean offset (QC-passed and finite), and its MPI-global size.
+  std::vector<int> qcmask_;
+  int qccount_ = 0;
 };
 
 // -----------------------------------------------------------------------------

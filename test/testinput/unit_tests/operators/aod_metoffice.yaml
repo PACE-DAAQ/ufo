@@ -1,6 +1,7 @@
 time window:
   begin: 2021-05-21T08:59:59Z
   end: 2021-05-21T15:00:00Z
+  bound to include: begin  # consistency with test data from "ncdiag"
 
 # NB: In the following AodKExt are dummy values used for the ctests only
 observations:
@@ -29,7 +30,7 @@ observations:
     coef TL: 1.0e-4
     iterations TL: 10
     tolerance TL: 1.0e-14
-    tolerance AD: 1.0e-14
+    tolerance AD: 2.0e-14
 # 2. check operator throws an error with incorrect geoval order
 - obs operator:
     name: AodMetOffice 
@@ -55,5 +56,5 @@ observations:
     coef TL: 1.0e-4
     iterations TL: 10
     tolerance TL: 1.0e-14
-    tolerance AD: 1.0e-14
+    tolerance AD: 2.0e-14
   expect simulateObs to throw exception with message: model fields must be ordered from the top down

@@ -10,6 +10,7 @@
 #include "eckit/exception/Exceptions.h"
 #include "ioda/Misc/StringFuncs.h"  // for convertV1PathToV2Path
 #include "ioda/ObsDataVector.h"
+#include "ioda/ObsSpace.h"
 #include "oops/util/IntSetParser.h"
 #include "oops/util/Logger.h"
 #include "oops/util/missingValues.h"
@@ -317,6 +318,8 @@ void DrawValueFromFile<T>::compute(const ObsFilterData & in,
         case ioda::ObsDtype::DateTime:
           updateObDataDateTime(in, allvars_[ind], obData);
           break;
+        case ioda::ObsDtype::Empty:
+          return;
         default:
           throw eckit::UserError("Data type not yet handled.", Here());
       }
@@ -334,6 +337,8 @@ void DrawValueFromFile<T>::compute(const ObsFilterData & in,
         case ioda::ObsDtype::DateTime:
           updateObDataDateTime(in, allvars_[ind], obData);
           break;
+        case ioda::ObsDtype::Empty:
+          return;
         default:
           throw eckit::UserError("Data type not yet handled.", Here());
       }

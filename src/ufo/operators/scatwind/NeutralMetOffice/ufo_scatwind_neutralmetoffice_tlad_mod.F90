@@ -16,23 +16,24 @@
 !!
 module ufo_scatwind_neutralmetoffice_tlad_mod
 
-use iso_c_binding
-use kinds
+use, intrinsic :: iso_c_binding, only: c_bool, c_char, c_double, c_int, c_ptr
+use kinds, only: kind_real
 use ufo_vars_mod
 use ufo_geovals_mod
 use ufo_geovals_mod_c, only: ufo_geovals_registry
 use ufo_basis_mod,     only: ufo_basis
 use obsspace_mod
-use oops_variables_mod
-use obs_variables_mod
-use missing_values_mod
-use fckit_log_module,  only : fckit_log
+use oops_variables_mod, only: oops_variables
+use obs_variables_mod, only: obs_variables
+use missing_values_mod, only: missing_value
+use logger_mod, only: oops_log
 use fckit_exception_module,  only : fckit_exception
 use vert_interp_mod
 use ufo_scatwind_neutralmetoffice_mod, only: &
     ops_scatwind_phi_m_sea
 
 implicit none
+private
 
   !> Fortran derived type for neutral wind
 type, public :: ufo_scatwind_neutralmetoffice_tlad
@@ -56,9 +57,9 @@ private
     final :: destructor
 end type ufo_scatwind_neutralmetoffice_tlad
 
-character(len=maxvarlen), dimension(2), parameter :: geovars_default = (/ &
+character(len=maxvarlen), dimension(2), parameter :: geovars_default = [ &
                                                              var_u,       &
-                                                             var_v /)
+                                                             var_v ]
 
 ! ------------------------------------------------------------------------------
 contains
@@ -164,7 +165,7 @@ subroutine ufo_scatwind_neutralmetoffice_tlad_settraj(self, geovals, obss)
                             self % surface_type_check,        &
                             self % surface_type_sea,          &
                             self%CDR10(iobs))
-  enddo
+  end do
 
   ! Cleanup memory
   deallocate(za)
@@ -197,52 +198,37 @@ subroutine ufo_scatwind_neutralmetoffice_simobs_tl(self, geovals, obss, nvars, &
 
   character(max_string)              :: err_msg           ! Error message for output
   character(max_string)              :: message           ! General message for output
-  integer                            :: nobs              ! Number of observations
   integer                            :: iobs              ! Loop variable, observation number
   type(ufo_geoval), pointer          :: u_d               ! Increment to eastward wind
   type(ufo_geoval), pointer          :: v_d               ! Increment to northward wind
   real(c_double)                     :: hofx_u(nlocs)
   real(c_double)                     :: hofx_v(nlocs)
-  integer                            :: nchans
   integer                            :: ichan
   real(kind_real)                    :: u10               ! eastward wind at 10m
   real(kind_real)                    :: v10               ! northward wind at 10m
 
-  write(err_msg,*) "TRACE: ufo_scatwind_neutralmetoffice_simobs_tl: begin"
-  call fckit_log%info(err_msg)
+  write(err_msg,*) "ufo_scatwind_neutralmetoffice_simobs_tl: begin"
+  call oops_log%trace(err_msg)
 
   ! check if nlocs is consistent in geovals & hofx
   if (geovals%nlocs /= size(hofx(1,:))) then
-    write(err_msg,*) myname_, ' error: nlocs inconsistent!'
+    write(err_msg,*) myname_, " error: nlocs inconsistent!"
     call abor1_ftn(err_msg)
-  endif
-
-  ! number of channels
-  nchans = size(self%channels)
-
-  ! check that hofx is the correct size for simulated variables
-  ! if we have channels as second dimension then we should have 2*nchans variables
-  ! if we have a single dimension then we should have 2 variables
-  if (nchans /= 0) then
-    if (size(hofx(:,1)) /= 2*nchans) then
-      write(err_msg, '(A,I5,A,I5)') "HofX should have nchans variables for both windEastward and windNorthward. Was given ", size(hofx(:,1)), " but expected ", 2*nchans
-      call fckit_exception%throw(err_msg)
-    endif
-  else
-    if (size(hofx(:,1)) /= 2) then
-      call fckit_exception%throw("HofX should have 2 variables windEastward and windNorthward")
-    endif
   end if
 
-  write(message, *) myname_, ' Running TL of Met Office neutral wind operator'
-  call fckit_log%info(message)
+  if (mod(size(hofx,dim=1),2) /= 0) then
+    call fckit_exception%throw("HofX should have 2 variables windEastward and windNorthward")
+  end if
+
+  write(message, *) myname_, " Running TL of Met Office neutral wind operator"
+  call oops_log%trace(message)
 
   ! get variables from geovals
   call ufo_geovals_get_var(geovals, var_u, u_d)                        ! Eastward wind
   call ufo_geovals_get_var(geovals, var_v, v_d)                        ! Northward wind
 
-  write(err_msg,*) "TRACE: ufo_scatwind_neutralmetoffice_simobs_tl: begin observation loop, nobs =  ", nlocs
-  call fckit_log%info(err_msg)
+  write(err_msg,*) "ufo_scatwind_neutralmetoffice_simobs_tl: begin observation loop, nobs =  ", nlocs
+  call oops_log%trace(err_msg)
 
   obs_loop: do iobs = 1, nlocs
     ! Get u,v wind components at 10m using Tl of interpolate from geovals to observational location
@@ -260,20 +246,18 @@ subroutine ufo_scatwind_neutralmetoffice_simobs_tl(self, geovals, obss, nvars, &
     end if
   end do obs_loop
 
-  ! if we have channels then need to spread these values across the channels correctly
-  if (nchans /= 0) then
-    ! windEastward hofx is stored in slot 1
-    hofx_u = hofx(1,:)
-    ! windNorthward hofx is stored in slot 2
-    hofx_v = hofx(2,:)
-    chan_loop: do ichan = 1, nchans
-      hofx(ichan,:) = hofx_u
-      hofx(ichan+nchans,:) = hofx_v
-    end do chan_loop
-  end if
+  ! Need to spread these values across the channels correctly
+  ! windEastward hofx is stored in slot 1
+  hofx_u = hofx(1,:)
+  ! windNorthward hofx is stored in slot 2
+  hofx_v = hofx(2,:)
+  chan_loop: do ichan = 1, size(hofx,dim=1)/2
+    hofx(ichan,:) = hofx_u
+    hofx(ichan+size(hofx,dim=1)/2,:) = hofx_v
+  end do chan_loop
 
-  write(err_msg,*) "TRACE: ufo_scatwind_neutralmetoffice_simobs_tl: completed"
-  call fckit_log%info(err_msg)
+  write(err_msg,*) "ufo_scatwind_neutralmetoffice_simobs_tl: completed"
+  call oops_log%trace(err_msg)
 
 end subroutine ufo_scatwind_neutralmetoffice_simobs_tl
 
@@ -302,78 +286,48 @@ subroutine ufo_scatwind_neutralmetoffice_simobs_ad(self, geovals, obss, nvars, &
 
   character(max_string)              :: err_msg           ! Error message for output
   character(max_string)              :: message           ! General message for output
-  integer                            :: nobs              ! Number of observations
   integer                            :: iobs              ! Loop variable, observation number
   type(ufo_geoval), pointer          :: u_d               ! Pointer to eastward wind perturbations
   type(ufo_geoval), pointer          :: v_d               ! Pointer to northward wind perturbations
-  real(c_double)                     :: hofx_u(nlocs)
-  real(c_double)                     :: hofx_v(nlocs)
-  integer                            :: nchans
   integer                            :: ichan
   real(kind_real)                    :: u10               ! eastward wind at 10m
   real(kind_real)                    :: v10               ! northward wind at 10m
 
-  write(err_msg,*) "TRACE: ufo_scatwind_neutralmetoffice_simobs_ad: begin"
-  call fckit_log%info(err_msg)
+  write(err_msg,*) "ufo_scatwind_neutralmetoffice_simobs_ad: begin"
+  call oops_log%trace(err_msg)
 
   ! check if nlocs is consistent in geovals & hofx
   if (geovals%nlocs /= size(hofx(1,:))) then
-    write(err_msg,*) myname_, ' error: nlocs inconsistent!'
+    write(err_msg,*) myname_, " error: nlocs inconsistent!"
     call abor1_ftn(err_msg)
-  endif
-
-  ! number of channels
-  nchans = size(self%channels)
-
-  ! check that hofx is the correct size for simulated variables
-  ! if we have channels as second dimension then we should have 2*nchans variables
-  ! if we have a single dimension then we should have 2 variables
-  if (nchans /= 0) then
-    if (size(hofx(:,1)) /= 2*nchans) then
-      write(err_msg, '(A,I5,A,I5)') "HofX should have nchans variables for both windEastward and windNorthward. Was given ", size(hofx(:,1)), " but expected ", 2*nchans
-      call fckit_exception%throw(err_msg)
-    endif
-  else
-    if (size(hofx(:,1)) /= 2) then
-      call fckit_exception%throw("HofX should have 2 variables windEastward and windNorthward")
-    endif
   end if
 
-  write(message, *) myname_, ' Running adjoint of Met Office neutral wind operator'
-  call fckit_log%info(message)
+  write(message, *) myname_, " Running adjoint of Met Office neutral wind operator"
+  call oops_log%trace(message)
 
   ! get variables from geovals
   call ufo_geovals_get_var(geovals, var_u, u_d)                        ! Eastward wind
   call ufo_geovals_get_var(geovals, var_v, v_d)                        ! Northward wind
 
-  write(err_msg,*) "TRACE: ufo_scatwind_neutralmetoffice_simobs_ad: begin observation loop, nobs =  ", nlocs
-  call fckit_log%info(err_msg)
+  write(err_msg,*) "ufo_scatwind_neutralmetoffice_simobs_ad: begin observation loop, nobs =  ", nlocs
+  call oops_log%trace(err_msg)
 
   obs_loop: do iobs = 1, nlocs
     if (self%CDR10(iobs) /= missing_value(self%CDR10(iobs)) .and. self%CDR10(iobs) > 0.0) then
-      if (nchans /= 0) then
-        ! u and v are stored according to the number of channels
-        chan_loop: do ichan = 1, nchans
-          u10 = hofx(ichan,iobs) * self%CDR10(iobs)
-          v10 = hofx(ichan+nchans,iobs) * self%CDR10(iobs)
-          ! Adjoint of interpolate, from hofx into geovals
-          call vert_interp_apply_ad(u_d % nval, u_d % vals(:, iobs), u10, self%wi(iobs), self%wf(iobs))
-          call vert_interp_apply_ad(v_d % nval, v_d % vals(:, iobs), v10, self%wi(iobs), self%wf(iobs))
-        end do chan_loop
-      else
-        ! u is stored in slot 1, v is stored in slot 2
-        u10 = hofx(1,iobs) * self%CDR10(iobs)
-        v10 = hofx(2,iobs) * self%CDR10(iobs)
+      ! u and v are stored according to the number of channels
+      chan_loop: do ichan = 1, size(hofx,dim=1)/2
+        u10 = hofx(ichan,iobs) * self%CDR10(iobs)
+        v10 = hofx(ichan+size(hofx,dim=1)/2,iobs) * self%CDR10(iobs)
         ! Adjoint of interpolate, from hofx into geovals
         call vert_interp_apply_ad(u_d % nval, u_d % vals(:, iobs), u10, self%wi(iobs), self%wf(iobs))
         call vert_interp_apply_ad(v_d % nval, v_d % vals(:, iobs), v10, self%wi(iobs), self%wf(iobs))
-      end if
+      end do chan_loop
     end if
 
   end do obs_loop
 
-  write(err_msg,*) "TRACE: ufo_scatwind_neutralmetoffice_simobs_tl: completed"
-  call fckit_log%info(err_msg)
+  write(err_msg,*) "ufo_scatwind_neutralmetoffice_simobs_ad: completed"
+  call oops_log%trace(err_msg)
 
 end subroutine ufo_scatwind_neutralmetoffice_simobs_ad
 

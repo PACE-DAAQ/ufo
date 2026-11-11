@@ -7,10 +7,12 @@
 
 #include <algorithm>
 #include <memory>
+#include <numeric>
 #include <set>
 #include <string>
 #include <utility>
 
+#include "ioda/distribution/Distribution.h"
 #include "ioda/ObsDataVector.h"
 #include "ioda/ObsSpace.h"
 
@@ -22,9 +24,9 @@
 namespace ufo {
 
 PrintFilterData::PrintFilterData(ioda::ObsSpace & obsdb, const Parameters_ & parameters,
-                                 std::shared_ptr<ioda::ObsDataVector<int> > flags,
-                                 std::shared_ptr<ioda::ObsDataVector<float> > obserr)
-  : ObsProcessorBase(obsdb, parameters.deferToPost, std::move(flags), std::move(obserr)),
+                                 ioda::ObsDataVector<int> & flags,
+                                 ioda::ObsDataVector<float> & obserr)
+  : ObsProcessorBase(obsdb, parameters.deferToPost, flags, obserr),
     parameters_(parameters),
     os_(parameters.outputToTest ? oops::Log::test() : oops::Log::info())
 {
@@ -336,7 +338,7 @@ void PrintFilterData::printAllData() const {
     os_ << std::endl;
     // Print division bar below header.
     os_ << std::string(maxVariableNameLength, '-') << "-+-";
-    for (int loc : locGroup)
+    for (size_t loc = 0; loc < locGroup.size(); ++loc)
       os_ << std::string(columnWidth, '-') << "-+-";
     os_ << std::endl;
     // Print each variable in turn.

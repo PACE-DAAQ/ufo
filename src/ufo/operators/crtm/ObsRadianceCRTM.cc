@@ -18,6 +18,7 @@
 #include "oops/base/SamplingMethodSelector.h"
 #include "oops/base/Variables.h"
 #include "oops/interface/SampledLocations.h"
+#include "oops/util/abor1_cpp.h"
 #include "oops/util/dateFunctions.h"
 #include "oops/util/missingValues.h"
 #include "oops/util/TimeWindow.h"
@@ -503,7 +504,7 @@ void ObsRadianceCRTM::simulateObs(const GeoVaLs & gom, ioda::ObsVector & ovec,
   ufo_radiancecrtm_simobs_f90(keyOperRadianceCRTM_, gom.toFortran(), odb_,
                               ovec.nvars(), ovec.nlocs(), ovec.toFortran(),
                               dvec.toFortran(),
-                              reinterpret_cast<const void*>(&qc_flags));
+                              qc_flags);
 
   oops::Log::trace() << "ObsRadianceCRTM::simulateObs done" << std::endl;
 }

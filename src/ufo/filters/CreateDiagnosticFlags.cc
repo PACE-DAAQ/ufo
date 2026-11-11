@@ -22,9 +22,9 @@ namespace ufo {
 // -----------------------------------------------------------------------------
 
 CreateDiagnosticFlags::CreateDiagnosticFlags(ioda::ObsSpace &obsdb, const Parameters_ &parameters,
-                                             std::shared_ptr<ioda::ObsDataVector<int>> qcflags,
-                                             std::shared_ptr<ioda::ObsDataVector<float>> obserr)
-  : ObsProcessorBase(obsdb, parameters.deferToPost, std::move(qcflags), std::move(obserr)),
+                                             ioda::ObsDataVector<int> &flags,
+                                             ioda::ObsDataVector<float> &obserr)
+  : ObsProcessorBase(obsdb, parameters.deferToPost, flags, obserr),
     parameters_(parameters)
 {
   oops::Log::trace() << "CreateDiagnosticFlags constructor start" << std::endl;
@@ -113,7 +113,7 @@ void CreateDiagnosticFlags::createFlag(const Variable & var,
     // current flag and observed variable.
     for (size_t jv = 0; jv < var.size(); ++jv) {
       obsdb_.put_db(var.group(), var.variable(jv),
-                    std::vector<T>(obsdb_.nlocs(), initialValue));
+                    std::vector<T>(obsdb_.nlocs(), initialValue), var.dimList());
     }
   }
 }

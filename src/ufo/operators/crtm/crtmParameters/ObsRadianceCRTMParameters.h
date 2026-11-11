@@ -1,5 +1,5 @@
 /*
- * (C) Copyright 2021 UCAR
+ * (C) Copyright 2021 - 2026 UCAR
  *
  * This software is licensed under the terms of the Apache Licence Version 2.0
  * which can be obtained at http://www.apache.org/licenses/LICENSE-2.0.
@@ -71,9 +71,29 @@ namespace ufo
     /// MWwaterCoeff
     oops::OptionalParameter<std::string> MWwaterCoeff{"MWwaterCoeff", "FASTEM6", this};
     /// Scaling factor
+    /// if true, initialise and read C matrix for reconstructed radiances
+    oops::OptionalParameter<bool> ReconstructedRadianceCorrection
+                                 {"ReconstructedRadianceCorrection", this};
+
+    /// C matrix path
+    oops::OptionalParameter<std::string> CMatrixPath{"CMatrixPath", this};
+
     oops::Parameter <double> modelUnitsCoeff{"model units coeff",
           "Conversion between model units", 1.0, this};
   };  // end class ObsOptionsParameters
+
+  /// \brief One entry of zeroJacParams: a variable name and the channels whose Jacobian
+  /// is nullified.
+  class NullifyJacobianParameters : public oops::Parameters
+  {
+    OOPS_CONCRETE_PARAMETERS(NullifyJacobianParameters, Parameters)
+   public:
+    /// UFO variable name (must match an entry of Absorbers)
+    oops::RequiredParameter<std::string> variable{"variable", this};
+    /// channel numbers whose Jacobian is nullified; comma-separated integers and/or ranges,
+    /// e.g. 1, 5-10, 12; parsed with oops::parseIntSet
+    oops::RequiredParameter<std::string> channelList{"channels", this};
+  };  // end class NullifyJacobianParameters
 
   /// \brief Sub-parameters for the linear obs operator
   class CRTMLinearObsOperatorParameters : public ObsOperatorParametersBase
@@ -89,6 +109,9 @@ namespace ufo
     //// use qc flags
     oops::Parameter<bool> UseQCFlagsToSkipHofX{"UseQCFlagsToSkipHofX",
        "do not calculate hofx for values not passing qc (true or false)", false, this};
+    //// per-variable name and channels whose jacobian is nullified
+    oops::OptionalParameter<std::vector<NullifyJacobianParameters>> NullifyJacobianParams{
+      "nullify jacobian params", this};
   };  // end class CRTMLinearObsOperatorParameters
 
 
@@ -106,7 +129,7 @@ namespace ufo
     oops::Parameter<std::string> CO2AbsorberMethod{"CO2AbsorberMethod",
           "Background", this};
     oops::Parameter<float> CO2gvConvertUnit{"CO2gvConvertUnit",
-          "mutiplicative factor to convert unit of CO2 GeoVaL", -1.0, this};
+          "multiplicative factor to convert unit of CO2 GeoVaL", -1.0, this};
     /// CO2 value when EternalConstant is selected
     oops::Parameter<float> CO2ppmvValue{"CO2ppmvValue",
           407.0, this};

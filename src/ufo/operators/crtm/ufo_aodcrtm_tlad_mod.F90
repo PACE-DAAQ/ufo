@@ -8,7 +8,7 @@
 module ufo_aodcrtm_tlad_mod
 
  use fckit_configuration_module, only: fckit_configuration
- use iso_c_binding
+ use, intrinsic :: iso_c_binding
  use kinds
  use missing_values_mod
 
@@ -32,7 +32,8 @@ module ufo_aodcrtm_tlad_mod
   integer :: n_Channels
   type(CRTM_Atmosphere_type), allocatable :: atm_K(:,:)
   type(CRTM_Surface_type), allocatable :: sfc_K(:,:)
-  REAL(kind_real), allocatable  :: scaling_factor(:,:)  
+  REAL(kind_real), allocatable  :: scaling_factor(:,:)
+  type(CRTM_Options_type), allocatable :: Options(:)
   logical :: ltraj
  contains
   procedure :: setup  => ufo_aodcrtm_tlad_setup
@@ -90,17 +91,18 @@ class(ufo_aodcrtm_tlad), intent(inout) :: self
  if (allocated(self%atm_k)) then
    call CRTM_Atmosphere_Destroy(self%atm_K)
    deallocate(self%atm_k)
- endif
+ end if
 
  if (allocated(self%sfc_k)) then
    call CRTM_Surface_Destroy(self%sfc_K)
    deallocate(self%sfc_k)
- endif
+ end if
 
  IF (ALLOCATED(self%scaling_factor)) THEN
    deallocate(self%scaling_factor)
- endif
+ end if
 
+ if (allocated(self%Options)) deallocate(self%Options)
 
 end subroutine ufo_aodcrtm_tlad_delete
 
@@ -115,7 +117,7 @@ type(ufo_geovals),        intent(in)    :: geovals
 type(c_ptr), value,       intent(in)    :: obss
 
 ! Local Variables
-character(*), parameter :: PROGRAM_NAME = 'ufo_aodcrtm_tlad_mod.F90'
+character(*), parameter :: PROGRAM_NAME = "ufo_aodcrtm_tlad_mod.F90"
 character(len=MAXVARLEN) :: def_aero_mod
 character(255) :: message, version
 integer        :: err_stat, alloc_stat
@@ -169,7 +171,7 @@ type(CRTM_RTSolution_type), allocatable :: rts_K(:,:)
             AerosolCoeff_File   = trim(self%conf%AerosolCoeff_File), &
             Quiet=.TRUE.)
  if ( err_stat /= SUCCESS ) THEN
-   message = 'Error initializing CRTM (setTraj)'
+   message = "Error initializing CRTM (setTraj)"
    call Display_Message( PROGRAM_NAME, message, FAILURE )
    stop
  end if
@@ -193,10 +195,11 @@ type(CRTM_RTSolution_type), allocatable :: rts_K(:,:)
              self%atm_K( self%N_Channels, self%n_Profiles ) , &
              self%sfc_K( self%N_Channels, self%n_Profiles ) , &
              self%scaling_factor(self%n_Layers,self%n_Profiles ) , &
+             self%Options(self%n_Profiles)                  , &
              rts_K( self%N_Channels, self%n_Profiles )      , &
              STAT = alloc_stat                                )
    if ( alloc_stat /= 0 ) THEN
-      message = 'Error allocating structure arrays (setTraj)'
+      message = "Error allocating structure arrays (setTraj)"
       call Display_Message( PROGRAM_NAME, message, FAILURE )
       stop
    end if
@@ -206,7 +209,7 @@ type(CRTM_RTSolution_type), allocatable :: rts_K(:,:)
    ! ----------------------------------------
    call CRTM_Atmosphere_Create( atm, self%n_Layers, self%conf%n_Absorbers, self%conf%n_Clouds, self%conf%n_Aerosols )
    if ( ANY(.NOT. CRTM_Atmosphere_Associated(atm)) ) THEN
-      message = 'Error allocating CRTM Forward Atmosphere structure (setTraj)'
+      message = "Error allocating CRTM Forward Atmosphere structure (setTraj)"
       CALL Display_Message( PROGRAM_NAME, message, FAILURE )
       STOP
    END IF
@@ -215,7 +218,7 @@ type(CRTM_RTSolution_type), allocatable :: rts_K(:,:)
    ! --------------------------------------
    call CRTM_Atmosphere_Create( self%atm_K, self%n_Layers, self%conf%n_Absorbers, self%conf%n_Clouds, self%conf%n_Aerosols )
    if ( ANY(.NOT. CRTM_Atmosphere_Associated(self%atm_K)) ) THEN
-      message = 'Error allocating CRTM K-matrix Atmosphere structure (setTraj)'
+      message = "Error allocating CRTM K-matrix Atmosphere structure (setTraj)"
       CALL Display_Message( PROGRAM_NAME, message, FAILURE )
       STOP
    END IF
@@ -224,9 +227,14 @@ type(CRTM_RTSolution_type), allocatable :: rts_K(:,:)
    !--------------------------------
    CALL Load_Atm_Data(self%N_PROFILES,self%N_LAYERS,geovals,atm,self%conf)
 
-   IF (TRIM(self%conf%aerosol_option) /= "") &
-        &CALL load_aerosol_data(self%n_profiles, self%n_layers, geovals,&
+   do m = 1, self%n_Profiles
+     self%Options(m)%Skip_Profile = .not. crtm_pressure_is_monotonic(atm(m))
+   end do
+
+   IF (TRIM(self%conf%aerosol_option) /= "") then
+     CALL load_aerosol_data(self%n_profiles, self%n_layers, geovals,&
         &self%conf, self%varin, trim(def_aero_mod), atm)
+   end if
 
    CALL CRTM_RTSolution_Create(rts, self%n_layers )
    CALL CRTM_RTSolution_Create(rts_k, self%n_layers )
@@ -248,9 +256,10 @@ type(CRTM_RTSolution_type), allocatable :: rts_K(:,:)
                              rts_K       , &  ! K-MATRIX Input
                              chinfo(n:n) , &  ! Input
                              rts         , &  ! FORWARD  Output
-                             self%atm_K    )  ! K-MATRIX Output
+                             self%atm_K  , &  ! K-MATRIX Output
+                             self%Options  )  ! Input
    if ( err_stat /= SUCCESS ) THEN
-      message = 'Error calling CRTM (setTraj) K-Matrix Model for '//TRIM(self%conf%SENSOR_ID(n))
+      message = "Error calling CRTM (setTraj) K-Matrix Model for "//TRIM(self%conf%SENSOR_ID(n))
       call Display_Message( PROGRAM_NAME, message, FAILURE )
       stop
    end if
@@ -267,7 +276,7 @@ type(CRTM_RTSolution_type), allocatable :: rts_K(:,:)
    ! ---------------------
    deallocate(geo, atm, sfc, rts, rts_K, STAT = alloc_stat)
    if ( alloc_stat /= 0 ) THEN
-      message = 'Error deallocating structure arrays (setTraj)'
+      message = "Error deallocating structure arrays (setTraj)"
       call Display_Message( PROGRAM_NAME, message, FAILURE )
       stop
    end if
@@ -280,7 +289,7 @@ type(CRTM_RTSolution_type), allocatable :: rts_K(:,:)
  ! write( *, '( /5x, "Destroying the CRTM (setTraj)..." )' )
  err_stat = CRTM_Destroy( chinfo )
  if ( err_stat /= SUCCESS ) THEN
-    message = 'Error destroying CRTM (setTraj)'
+    message = "Error destroying CRTM (setTraj)"
     call Display_Message( PROGRAM_NAME, message, FAILURE )
     stop
  end if
@@ -316,31 +325,31 @@ CHARACTER(len=MAXVARLEN), ALLOCATABLE :: var_aerosols(:)
 
  ! Check if trajectory was set
  if (.not. self%ltraj) then
-   write(err_msg,*) myname_, ' trajectory wasnt set!'
+   write(err_msg,*) myname_, " trajectory wasnt set!"
    call abor1_ftn(err_msg)
- endif
+ end if
 
  ! Check if nlocs is consistent in geovals & hofx
  if (geovals%nlocs /= self%n_Profiles) then
-   write(err_msg,*) myname_, ' error: nlocs inconsistent!'
+   write(err_msg,*) myname_, " error: nlocs inconsistent!"
    call abor1_ftn(err_msg)
- endif
+ end if
 
  CALL assign_aerosol_names(self%conf%aerosol_option,var_aerosols)
 
  IF (SIZE(var_aerosols) /= self%conf%n_aerosols) THEN
-    WRITE(err_msg,*) myname_, ' error: n_aerosols inconsistent!'
+    WRITE(err_msg,*) myname_, " error: n_aerosols inconsistent!"
     call abor1_ftn(err_msg)
- ENDIF
+ END IF
 
 
  call ufo_geovals_get_var(geovals, var_aerosols(1), var_p)
 
  ! Check model levels is consistent in geovals & crtm
  if (var_p%nval /= self%n_Layers) then
-   write(err_msg,*) myname_, ' error: layers inconsistent!'
+   write(err_msg,*) myname_, " error: layers inconsistent!"
    call abor1_ftn(err_msg)
- endif
+ end if
 
 
  ! Initialize hofx
@@ -350,6 +359,8 @@ CHARACTER(len=MAXVARLEN), ALLOCATABLE :: var_aerosols(:)
  ! Multiply by Jacobian and add to hofx
  do jprofile = 1, self%n_profiles
 
+  if (self%Options(jprofile)%Skip_Profile) cycle
+
    do jchannel = 1, size(self%channels)
      DO jaero = 1, self%conf%n_aerosols
         CALL ufo_geovals_get_var(geovals, var_aerosols(jaero), var_p)
@@ -357,10 +368,10 @@ CHARACTER(len=MAXVARLEN), ALLOCATABLE :: var_aerosols(:)
            hofx(jchannel, jprofile) = hofx(jchannel, jprofile) + &
                                       self%atm_k(self%channels(jchannel),jprofile)%aerosol(jaero)%concentration(jlevel) *  &
                                       var_p%vals(jlevel,jprofile) * self%scaling_factor(jlevel,jprofile) * self%conf%unit_coef
-        ENDDO
-     ENDDO
-   enddo
- enddo
+        END DO
+     END DO
+   end do
+ end do
 
 end subroutine ufo_aodcrtm_simobs_tl
 
@@ -390,15 +401,15 @@ INTEGER :: jaero
 
  ! Check if trajectory was set
  if (.not. self%ltraj) then
-   write(err_msg,*) myname_, ' trajectory wasnt set!'
+   write(err_msg,*) myname_, " trajectory wasnt set!"
    call abor1_ftn(err_msg)
- endif
+ end if
 
  ! Check if nlocs is consistent in geovals & hofx
  if (geovals%nlocs /= self%n_Profiles) then
-   write(err_msg,*) myname_, ' error: nlocs inconsistent!'
+   write(err_msg,*) myname_, " error: nlocs inconsistent!"
    call abor1_ftn(err_msg)
- endif
+ end if
 
  ! Set missing value
  missing = missing_value(missing)
@@ -411,20 +422,26 @@ INTEGER :: jaero
 
 ! Multiply by Jacobian and add to hofx (adjoint)
     DO jprofile = 1, self%n_Profiles
+      if (self%Options(jprofile)%Skip_Profile) cycle
        DO jchannel = 1, size(self%channels)
           if (hofx(jchannel, jprofile) /= missing) then
             DO jlevel = 1, var_p%nval
                var_p%vals(jlevel,jprofile) = var_p%vals(jlevel,jprofile) + &
                     self%atm_k(self%channels(jchannel),jprofile)%aerosol(jaero)%concentration(jlevel) * hofx(jchannel, jprofile)
-            ENDDO
+            END DO
           end if
-       ENDDO
-    ENDDO
+       END DO
+    END DO
 
-    FORALL (jlevel=1:var_p%nval,jprofile=1:self%n_profiles) &
-        var_p%vals(jlevel,jprofile) = var_p%vals(jlevel,jprofile) * self%scaling_factor(jlevel,jprofile) * self%conf%unit_coef
+    DO jprofile = 1, self%n_profiles
+      if (self%Options(jprofile)%Skip_Profile) cycle
+      DO jlevel = 1, var_p%nval
+        var_p%vals(jlevel,jprofile) = var_p%vals(jlevel,jprofile) * &
+             self%scaling_factor(jlevel,jprofile) * self%conf%unit_coef
+      END DO
+    END DO
 
- ENDDO
+ END DO
 
  ! Once all geovals set replace flag
  ! ---------------------------------

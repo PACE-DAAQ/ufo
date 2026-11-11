@@ -12,6 +12,7 @@
 #include "oops/util/Logger.h"
 #include "oops/util/missingValues.h"
 
+#include "ioda/ObsVector.h"
 #include "ufo/GeoVaLs.h"
 #include "ufo/operators/radarreflectivity/genericreflectivity/MetOfficeReflectivity.h"
 #include "ufo/utils/Constants.h"
@@ -188,8 +189,7 @@ void MetOfficeReflectivity::setTrajectoryImpl(const GeoVaLs & gv,
 }
 
 void MetOfficeReflectivity::simulateObsTLImpl(const GeoVaLs & dx,
-                                              ioda::ObsVector & dy,
-                                              const QCFlags_t &) const {
+                                              ioda::ObsVector & dy) const {
   // This routine does the following:
   // - Retrieves GeoVaLs of qrain and qice increments.
   // - Uses stored GeoVaLs of z.
@@ -285,8 +285,7 @@ void MetOfficeReflectivity::simulateObsTLImpl(const GeoVaLs & dx,
 }
 
 void MetOfficeReflectivity::simulateObsADImpl(GeoVaLs & dx,
-                                              const ioda::ObsVector & dy,
-                                              const QCFlags_t &) const {
+                                              const ioda::ObsVector & dy) const {
   // This routine does the following:
   // - Retrieves GeoVaLs of qrain and qice increments.
   // - Uses stored GeoVaLs of z.

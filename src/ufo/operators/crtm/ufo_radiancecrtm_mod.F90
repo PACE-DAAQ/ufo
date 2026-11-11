@@ -12,10 +12,10 @@ module ufo_radiancecrtm_mod
 
  use fckit_configuration_module, only: fckit_configuration
  use fckit_mpi_module,   only: fckit_mpi_comm
- use iso_c_binding
+ use, intrinsic :: iso_c_binding
  use kinds
  use missing_values_mod
-
+ use ufo_reconradop_crtm_mod
  use obsspace_mod
  use obsdatavector_mod
  use ufo_geovals_mod, only: ufo_geovals, ufo_geoval, ufo_geovals_get_var
@@ -36,6 +36,7 @@ module ufo_radiancecrtm_mod
    integer, allocatable                          :: channels(:)
    type(crtm_conf) :: conf
    logical :: use_qc_flags
+   type(ufo_reconradop_crtm) :: reconradop_crtm
  contains
    procedure :: setup  => ufo_radiancecrtm_setup
    procedure :: delete => ufo_radiancecrtm_delete
@@ -43,18 +44,17 @@ module ufo_radiancecrtm_mod
  end type ufo_radiancecrtm
 
  character(len=maxvarlen), dimension(16), parameter :: varin_default = &
-                            (/var_ts, var_prs, var_prsi,                                  &
+                            [var_ts, var_prs, var_prsi,                                  &
                               var_sfc_wfrac, var_sfc_lfrac, var_sfc_ifrac, var_sfc_sfrac, &
                               var_sfc_wtmp,  var_sfc_ltmp,  var_sfc_itmp,  var_sfc_stmp,  &
                               var_sfc_vegfrac, var_sfc_lai,                               &
-                              var_sfc_soilm, var_sfc_soilt, var_sfc_sdepth/)
+                              var_sfc_soilm, var_sfc_soilt, var_sfc_sdepth]
 
 contains
 
 ! ------------------------------------------------------------------------------
 
 subroutine ufo_radiancecrtm_setup(self, f_confOper, channels, midPointJulday, comm)
-use ufo_utils_mod, only: cmp_strings
 use CRTM_SpcCoeff, only: CRTM_SpcCoeff_Load, SC
 
 implicit none
@@ -70,21 +70,21 @@ character(len=max_string) :: err_msg
 type(fckit_configuration) :: f_confOpts
 logical :: request_mw_vegtyp_soiltyp_data, request_visir_landtyp_data
 logical :: request_cldfrac, request_salinity
-logical :: request_more_hydrometeors = .false.
+logical :: request_more_hydrometeors
 integer :: ind0, nvars_more_hydros
 character(len=maxvarlen), dimension(10), parameter :: more_hydrometeors = &
-                            (/var_qsat, var_airdens, var_q,  var_ni, var_nr, &
-                              var_qc,   var_qi,      var_qr, var_qs, var_qg/)
+                            [var_qsat, var_airdens, var_q,  var_ni, var_nr, &
+                              var_qc,   var_qi,      var_qr, var_qs, var_qg]
 
  call f_confOper%get_or_die("obs options",f_confOpts)
- call f_confOper%get_or_die("UseQCFlagsToSkipHofX",self%use_qc_flags)  
+ call f_confOper%get_or_die("UseQCFlagsToSkipHofX",self%use_qc_flags)
  call crtm_conf_setup(self%conf,f_confOpts,f_confOper,midPointJulday,comm)
  if ( ufo_vars_getindex(self%conf%Absorbers, var_mixr) < 1 ) then
-   write(err_msg,*) 'ufo_radiancecrtm_setup error: H2O must be included in CRTM Absorbers'
+   write(err_msg,*) "ufo_radiancecrtm_setup error: H2O must be included in CRTM Absorbers"
    call abor1_ftn(err_msg)
  end if
  if ( ufo_vars_getindex(self%conf%Absorbers, var_oz) < 1 ) then
-   write(err_msg,*) 'ufo_radiancecrtm_setup error: O3 must be included in CRTM Absorbers'
+   write(err_msg,*) "ufo_radiancecrtm_setup error: O3 must be included in CRTM Absorbers"
    call abor1_ftn(err_msg)
  end if
 
@@ -98,7 +98,7 @@ character(len=maxvarlen), dimension(10), parameter :: more_hydrometeors = &
                                File_Path = trim(self%conf%COEFFICIENT_PATH), &
                                Quiet     = .true.)
  if (err_stat /= success) then
-   write(err_msg,*) 'ufo_radiancecrtm_setup error: failed CRTM_Load_SpcCoeff'
+   write(err_msg,*) "ufo_radiancecrtm_setup error: failed CRTM_Load_SpcCoeff"
    call abor1_ftn(err_msg)
  end if
  do js=1, self%conf%n_Sensors
@@ -107,15 +107,15 @@ character(len=maxvarlen), dimension(10), parameter :: more_hydrometeors = &
    else if (SC(js)%Sensor_Type == VISIBLE_SENSOR .or. SC(js)%Sensor_Type == INFRARED_SENSOR) then
      request_visir_landtyp_data = .true.
    else
-     write(err_msg,*) 'ufo_radiancecrtm_setup error: unsupported Sensor_Type =', &
-                      SC(js)%Sensor_Type, ', from Sensor_ID =', SC(js)%Sensor_ID
+     write(err_msg,*) "ufo_radiancecrtm_setup error: unsupported Sensor_Type =", &
+                      SC(js)%Sensor_Type, ", from Sensor_ID =", SC(js)%Sensor_ID
      call abor1_ftn(err_msg)
    end if
  end do
  deallocate(SC)
  ! check that at least one surface type is requested
  if (.not. request_mw_vegtyp_soiltyp_data .and. .not. request_visir_landtyp_data) then
-   write(err_msg,*) 'ufo_radiancecrtm_setup error: did not request surface data for Sensor_ID =', &
+   write(err_msg,*) "ufo_radiancecrtm_setup error: did not request surface data for Sensor_ID =", &
                     SC(js)%Sensor_ID
    call abor1_ftn(err_msg)
  end if
@@ -123,7 +123,7 @@ character(len=maxvarlen), dimension(10), parameter :: more_hydrometeors = &
  request_cldfrac = self%conf%n_Clouds > 0 .and. self%conf%Cloud_Fraction < 0.0 &
                    .and. (.not. self%conf%cal_cloud_frac_in_fov)
 
- request_salinity = cmp_strings(self%conf%salinity_option, "on")
+ request_salinity = self%conf%salinity_option == "on"
 
  request_more_hydrometeors = self%conf%cal_cloud_frac_in_fov .or. self%conf%cal_cloud_reff_in_fov
 
@@ -177,7 +177,7 @@ character(len=maxvarlen), dimension(10), parameter :: more_hydrometeors = &
      call abor1_ftn(err_msg)
    end if
    ind = ind + 1
- endif
+ end if
 
  !Use list of Absorbers and Clouds from conf
  do jspec = 1, self%conf%n_Absorbers
@@ -199,12 +199,12 @@ character(len=maxvarlen), dimension(10), parameter :: more_hydrometeors = &
    ind = ind + 1
  end if
 
- if (trim(self%conf%sfc_wind_geovars) == 'vector') then
+ if (trim(self%conf%sfc_wind_geovars) == "vector") then
    self%varin(ind) = var_sfc_wspeed
    ind = ind + 1
    self%varin(ind) = var_sfc_wdir
    ind = ind + 1
- else if (trim(self%conf%sfc_wind_geovars) == 'uv') then
+ else if (trim(self%conf%sfc_wind_geovars) == "uv") then
    self%varin(ind) = var_sfc_u
    ind = ind + 1
    self%varin(ind) = var_sfc_v
@@ -214,13 +214,11 @@ character(len=maxvarlen), dimension(10), parameter :: more_hydrometeors = &
  if (request_more_hydrometeors) then
    self%varin(ind:(ind+nvars_more_hydros-1)) =  more_hydrometeors
    ind = ind + nvars_more_hydros
- endif
+ end if
  ! save channels
  allocate(self%channels(size(channels)))
  self%channels(:) = channels(:)
-
  call f_confOpts%final()
-
 end subroutine ufo_radiancecrtm_setup
 
 ! ------------------------------------------------------------------------------
@@ -240,8 +238,7 @@ subroutine ufo_radiancecrtm_simobs(self, geovals, obss, nvars, nlocs, hofx, hofx
 use fckit_mpi_module,   only: fckit_mpi_comm
 use fckit_log_module,  only : fckit_log
 use obsdatavector_mod,  only: obsdatavector_int
-use iso_fortran_env,    only: int64
-use ufo_utils_mod,      only: cmp_strings
+use, intrinsic :: iso_fortran_env,    only: int64
 use CRTM_SpcCoeff, only: SC, &
                          SpcCoeff_IsMicrowaveSensor , &
                          SpcCoeff_IsInfraredSensor  , &
@@ -250,7 +247,7 @@ use CRTM_SpcCoeff, only: SC, &
 
 implicit none
 
-class(ufo_radiancecrtm),  intent(in) :: self         !Radiance object
+class(ufo_radiancecrtm),  intent(in) :: self      !Radiance object
 type(ufo_geovals),        intent(in) :: geovals      !Inputs from the model
 integer(c_size_t),        intent(in) :: nvars, nlocs
 real(c_double),        intent(inout) :: hofx(nvars, nlocs) !h(x) to return
@@ -259,7 +256,7 @@ type(c_ptr), value,       intent(in) :: obss         !ObsSpace
 type(c_ptr), value,       intent(in) :: qcf_p
 type(obsdatavector_int) :: qc_flags
 ! Local Variables
-character(*), parameter :: PROGRAM_NAME = 'ufo_radiancecrtm_simobs'
+character(*), parameter :: PROGRAM_NAME = "ufo_radiancecrtm_simobs"
 character(255) :: message, version
 character(max_string) :: err_msg, dbg_msg
 integer        :: err_stat, alloc_stat
@@ -310,7 +307,7 @@ logical :: jacobian_needed, skip_prof
 character(len=1) :: angle_hf
 
 ! set a local boolean variable for whether we are in vis or ultraviolet channels
-logical        :: Is_Vis_or_UV = .false.
+logical        :: Is_Vis_or_UV
 
 integer, allocatable :: zeroCloudInCRTM0(:)
 
@@ -360,9 +357,9 @@ integer, allocatable :: zeroCloudInCRTM0(:)
                        MWwaterCoeff_File   = trim(self%conf%MWwaterCoeff_File)  , &
                        Quiet               = .TRUE.)
 
- message = 'Error initializing CRTM'
+ message = "Error initializing CRTM"
  call crtm_comm_stat_check(err_stat, PROGRAM_NAME, message, f_comm)
- 
+
  ! Loop over all sensors. Not necessary if we're calling CRTM for each sensor
  ! ----------------------------------------------------------------------------
  Sensor_Loop:do n = 1, self%conf%n_Sensors
@@ -371,7 +368,7 @@ integer, allocatable :: zeroCloudInCRTM0(:)
    ! Pass channel list to CRTM
    ! -------------------------
    err_stat = CRTM_ChannelInfo_Subset(chinfo(n), self%channels, reset=.false.)
-   message = 'Error subsetting channels!'
+   message = "Error subsetting channels!"
    call crtm_comm_stat_check(err_stat, PROGRAM_NAME, message, f_comm)
 
    ! Determine the number of channels for the current sensor
@@ -386,7 +383,7 @@ integer, allocatable :: zeroCloudInCRTM0(:)
              rts( n_Channels, n_Profiles ),   &
              Options( n_Profiles ),           &
              STAT = alloc_stat )
-   message = 'Error allocating structure arrays'
+   message = "Error allocating structure arrays"
    call crtm_comm_stat_check(alloc_stat, PROGRAM_NAME, message, f_comm)
 
    if (n_Layers > 0) call CRTM_RTSolution_Create (rts, n_Layers)
@@ -395,7 +392,7 @@ integer, allocatable :: zeroCloudInCRTM0(:)
    ! ----------------------------------------
    call CRTM_Atmosphere_Create( atm, n_Layers, self%conf%n_Absorbers, self%conf%n_Clouds, self%conf%n_Aerosols )
    if ( ANY(.NOT. CRTM_Atmosphere_Associated(atm)) ) THEN
-      message = 'Error allocating CRTM Forward Atmosphere structure'
+      message = "Error allocating CRTM Forward Atmosphere structure"
       CALL Display_Message( PROGRAM_NAME, message, FAILURE )
       STOP
    END IF
@@ -405,7 +402,7 @@ integer, allocatable :: zeroCloudInCRTM0(:)
    ! ----------------------------------------
    call CRTM_Surface_Create(sfc, n_Channels)
    IF ( ANY(.NOT. CRTM_Surface_Associated(sfc)) ) THEN
-      message = 'Error allocating CRTM Surface structure'
+      message = "Error allocating CRTM Surface structure"
       CALL Display_Message( PROGRAM_NAME, message, FAILURE )
       STOP
    END IF
@@ -418,7 +415,7 @@ integer, allocatable :: zeroCloudInCRTM0(:)
       Is_Vis_or_UV = .true.
    else
       Is_Vis_or_UV = .false.
-   endif
+   end if
 
    !Assign the data from the GeoVaLs
    !--------------------------------
@@ -429,12 +426,12 @@ integer, allocatable :: zeroCloudInCRTM0(:)
    call Load_Atm_Data(n_Profiles,n_Layers,geovals,atm,self%conf, SC(n)%Is_Active_Sensor, &
                       zeroCloudInCRTM0)
    deallocate(zeroCloudInCRTM0)
-   if (cmp_strings(self%conf%SENSOR_ID(n),'gmi_gpm')) then
+   if (self%conf%SENSOR_ID(n) == "gmi_gpm") then
      allocate( geo_hf( n_Profiles ))
      call Load_Geom_Data(obss,geo,geo_hf,self%conf%SENSOR_ID(n))
    else
      call Load_Geom_Data(obss,geo)
-   endif
+   end if
 
    ! Call THE CRTM inspection
    ! ------------------------
@@ -443,7 +440,7 @@ integer, allocatable :: zeroCloudInCRTM0(:)
      call CRTM_Surface_Inspect(sfc(self%conf%inspect))
      call CRTM_Geometry_Inspect(geo(self%conf%inspect))
      call CRTM_ChannelInfo_Inspect(chinfo(n))
-   endif
+   end if
 
    !! Parse hofxdiags%variables into independent/dependent variables and channel
    !! assumed formats:
@@ -460,8 +457,8 @@ integer, allocatable :: zeroCloudInCRTM0(:)
       read(varstr(str_pos(3)+1:str_pos(4)),*, err=999) ch_diags(jvar)
  999  str_pos(1) = index(varstr,jacobianstr) - 1        !position before jacobianstr
       if (str_pos(1) == 0) then
-         write(err_msg,*) 'ufo_radiancecrtm_simobs: _jacobian_ must be // &
-                           & preceded by dependent variable in config: ', &
+         write(err_msg,*) "ufo_radiancecrtm_simobs: _jacobian_ must be // &
+                           & preceded by dependent variable in config: ", &
                            & hofxdiags%variables(jvar)
          call abor1_ftn(err_msg)
       else if (str_pos(1) > 0) then
@@ -497,7 +494,7 @@ integer, allocatable :: zeroCloudInCRTM0(:)
          do l = 1, size(self%channels)
            ll = l
            qc_ff = qc_flags%get(ll,ml)
-           if ( qc_ff < 2) then 
+           if ( qc_ff < 2) then
              skip_prof = .false.
              exit
            end if
@@ -512,10 +509,10 @@ integer, allocatable :: zeroCloudInCRTM0(:)
          n_good = n_good - 1
        end if
      end do
-     write(dbg_msg,'(a,i9,a,i9,a)') 'DEBUG, total of ', n_skipped, ' profiles being skipped. Using ', n_good, ' good profiles'
+     write(dbg_msg,"(a,i9,a,i9,a)") "DEBUG, total of ", n_skipped, " profiles being skipped. Using ", n_good, " good profiles"
      call fckit_log%debug(dbg_msg)
    end if
-   
+
    if (jacobian_needed) then
       ! Allocate the ARRAYS (for CRTM_K_Matrix)
       ! --------------------------------------
@@ -523,14 +520,14 @@ integer, allocatable :: zeroCloudInCRTM0(:)
                 sfc_K( n_Channels, n_Profiles ),   &
                 rts_K( n_Channels, n_Profiles ),   &
                 STAT = alloc_stat )
-      message = 'Error allocating K structure arrays'
+      message = "Error allocating K structure arrays"
       call crtm_comm_stat_check(alloc_stat, PROGRAM_NAME, message, f_comm)
 
       ! Create output K-MATRIX structure (atm)
       ! --------------------------------------
       call CRTM_Atmosphere_Create( atm_K, n_Layers, self%conf%n_Absorbers, self%conf%n_Clouds, self%conf%n_Aerosols )
       if ( ANY(.NOT. CRTM_Atmosphere_Associated(atm_K)) ) THEN
-         message = 'Error allocating CRTM K-matrix Atmosphere structure (setTraj)'
+         message = "Error allocating CRTM K-matrix Atmosphere structure (setTraj)"
          CALL Display_Message( PROGRAM_NAME, message, FAILURE )
          STOP
       END IF
@@ -539,7 +536,7 @@ integer, allocatable :: zeroCloudInCRTM0(:)
       ! --------------------------------------
       call CRTM_Surface_Create( sfc_K, n_Channels)
       IF ( ANY(.NOT. CRTM_Surface_Associated(sfc_K)) ) THEN
-         message = 'Error allocating CRTM K-matrix Surface structure (setTraj)'
+         message = "Error allocating CRTM K-matrix Surface structure (setTraj)"
          CALL Display_Message( PROGRAM_NAME, message, FAILURE )
          STOP
       END IF
@@ -562,7 +559,7 @@ integer, allocatable :: zeroCloudInCRTM0(:)
          end do
          rts_K%Radiance                = ZERO
          rts_K%Brightness_Temperature  = ZERO
-      else if (Is_Vis_or_UV) then
+      else if (Is_Vis_or_UV .or. self % conf % read_Cmatrix) then
          rts_K%Radiance                = ONE
          rts_K%Brightness_Temperature  = ZERO
       else
@@ -581,15 +578,15 @@ integer, allocatable :: zeroCloudInCRTM0(:)
                                 sfc_K       , &  ! K-MATRIX Output
                                 rts         , &  ! FORWARD  Output
                                 Options       )  ! Input
-      message = 'Error calling CRTM (setTraj) K-Matrix Model for '//TRIM(self%conf%SENSOR_ID(n))
+      message = "Error calling CRTM (setTraj) K-Matrix Model for "//TRIM(self%conf%SENSOR_ID(n))
       call crtm_comm_stat_check(err_stat, PROGRAM_NAME, message, f_comm)
-      if (cmp_strings(self%conf%SENSOR_ID(n),'gmi_gpm')) then
+      if (self%conf%SENSOR_ID(n) == "gmi_gpm") then
          allocate( atm_Ka( n_Channels, n_Profiles ),               &
                    sfc_Ka( n_Channels, n_Profiles ),   &
                    rts_Ka( n_Channels, n_Profiles ),   &
                    rtsa( n_Channels, n_Profiles ),     &
                    STAT = alloc_stat )
-         message = 'Error allocating K structure arrays rtsa, atm_Ka ......'
+         message = "Error allocating K structure arrays rtsa, atm_Ka ......"
          call crtm_comm_stat_check(alloc_stat, PROGRAM_NAME, message, f_comm)
          !! save resutls for gmi channels 1-9.
          atm_Ka = atm_K
@@ -612,7 +609,7 @@ integer, allocatable :: zeroCloudInCRTM0(:)
                                    sfc_K       , &  ! K-MATRIX Output
                                    rts         , &  ! FORWARD  Output
                                    Options       )  ! Input
-         message = 'Error calling CRTM (setTraj, geo_hf) K-Matrix Model for ' &
+         message = "Error calling CRTM (setTraj, geo_hf) K-Matrix Model for " &
                    //TRIM(self%conf%SENSOR_ID(n))
          call crtm_comm_stat_check(err_stat, PROGRAM_NAME, message, f_comm)
          !! replace data for gmi channels 1-9 by early results calculated with geo.
@@ -622,10 +619,10 @@ integer, allocatable :: zeroCloudInCRTM0(:)
                sfc_K(l,:) = sfc_Ka(l,:)
                rts_K(l,:) = rts_Ka(l,:)
                rts(l,:)   = rtsa(l,:)
-            endif
-         enddo
+            end if
+         end do
          deallocate(atm_Ka,sfc_Ka,rts_Ka,rtsa)
-      endif ! cmp_strings(self%conf%SENSOR_ID(n),'gmi_gpm')
+      end if ! self%conf%SENSOR_ID(n) == 'gmi_gpm'
    else
       ! Call the forward model call for each sensor
       ! -------------------------------------------
@@ -635,12 +632,12 @@ integer, allocatable :: zeroCloudInCRTM0(:)
                                chinfo(n:n) , &  ! Input
                                rts         , &  ! Output
                                Options       )  ! Input
-      message = 'Error calling CRTM Forward Model for '//TRIM(self%conf%SENSOR_ID(n))
+      message = "Error calling CRTM Forward Model for "//TRIM(self%conf%SENSOR_ID(n))
       call crtm_comm_stat_check(err_stat, PROGRAM_NAME, message, f_comm)
-      if (cmp_strings(self%conf%SENSOR_ID(n),'gmi_gpm')) then
+      if (self%conf%SENSOR_ID(n) == "gmi_gpm") then
          allocate( rtsa( n_Channels, n_Profiles ),     &
                    STAT = alloc_stat )
-         message = 'Error allocating K structure arrays rtsa.'
+         message = "Error allocating K structure arrays rtsa."
          call crtm_comm_stat_check(alloc_stat, PROGRAM_NAME, message, f_comm)
          !! save resutls for gmi channels 1-9.
          rtsa = rts
@@ -652,16 +649,16 @@ integer, allocatable :: zeroCloudInCRTM0(:)
                                   chinfo(n:n) , &  ! Input
                                   rts         , &  ! Output
                                   Options       )  ! Input
-         message = 'Error calling CRTM Forward Model for gmi_gpm channels 10-13'
+         message = "Error calling CRTM Forward Model for gmi_gpm channels 10-13"
          call crtm_comm_stat_check(err_stat, PROGRAM_NAME, message, f_comm)
          !! replace data for gmi channels 1-9 by results calculated with geo.
          do l = 1, size(self%channels)
             if ( self%channels(l) <= 9 ) then
                rts(l,:)   = rtsa(l,:)
-            endif
-         enddo
+            end if
+         end do
          deallocate(rtsa)
-      endif ! cmp_strings(self%conf%SENSOR_ID(n),'gmi_gpm')
+      end if ! self%conf%SENSOR_ID(n) == 'gmi_gpm'
    end if ! jacobian_needed
 
    !call CRTM_RTSolution_Inspect(rts)
@@ -676,7 +673,7 @@ integer, allocatable :: zeroCloudInCRTM0(:)
                                n_Channels, &
                                hofx, &
                                obss)
-      
+
       call ufo_crtm_active_diag(rts, &
                                 rts_K, &
                                 atm, &
@@ -698,13 +695,27 @@ integer, allocatable :: zeroCloudInCRTM0(:)
                                 hofxdiags,&
                                 err_stat)
    else
-      call ufo_crtm_passive_sim(rts, &
-                                Options, &
-                                nvars, &
-                                nlocs, &
-                                n_Profiles, &
-                                n_Channels, &
-                                hofx)
+      if (self % conf % read_Cmatrix) then
+         call self%reconradop_crtm%apply(self%conf % Cmatrix_path,&
+                                         rts, &
+                                         n, &
+                                         n_Profiles, &
+                                         n_Channels, &
+                                         self%conf%n_Absorbers,&
+                                         n_Layers,&
+                                         self%channels, &
+                                         rts_K, &
+                                         atm_K, &
+                                         sfc_K, jacobian_needed )
+      end if
+
+     call ufo_crtm_passive_sim(rts, &
+                               Options, &
+                               nvars, &
+                               nlocs, &
+                               n_Profiles, &
+                               n_Channels, &
+                               hofx)
 
       call ufo_crtm_passive_diag(rts, &
                                  rts_K, &
@@ -730,7 +741,7 @@ integer, allocatable :: zeroCloudInCRTM0(:)
 
    ! check for error from either passive or active
    if (err_stat > 0) then
-       write(err_msg,*) 'ufo_radiancecrtm_sim error: failed to put simulated diagnostics into hofxdiags'
+       write(err_msg,*) "ufo_radiancecrtm_sim error: failed to put simulated diagnostics into hofxdiags"
        call abor1_ftn(err_msg)
    end if
 
@@ -745,7 +756,7 @@ integer, allocatable :: zeroCloudInCRTM0(:)
    ! ---------------------
    deallocate(geo, atm, sfc, rts, Options, STAT = alloc_stat)
    if(allocated(geo_hf)) deallocate(geo_hf)
-   message = 'Error deallocating structure arrays'
+   message = "Error deallocating structure arrays"
    call crtm_comm_stat_check(alloc_stat, PROGRAM_NAME, message, f_comm)
 
    if (jacobian_needed) then
@@ -758,7 +769,7 @@ integer, allocatable :: zeroCloudInCRTM0(:)
       ! Deallocate all K arrays
       ! -----------------------
       deallocate(atm_K, sfc_K, rts_K, STAT = alloc_stat)
-      message = 'Error deallocating K structure arrays'
+      message = "Error deallocating K structure arrays"
       call crtm_comm_stat_check(alloc_stat, PROGRAM_NAME, message, f_comm)
    end if
 
@@ -769,7 +780,7 @@ integer, allocatable :: zeroCloudInCRTM0(:)
  ! ---------------------
  ! write( *, '( /5x, "Destroying the CRTM..." )' )
  err_stat = CRTM_Destroy( chinfo )
- message = 'Error destroying CRTM'
+ message = "Error destroying CRTM"
  call crtm_comm_stat_check(err_stat, PROGRAM_NAME, message, f_comm)
  call f_comm%final()
 

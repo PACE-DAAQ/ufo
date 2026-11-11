@@ -43,8 +43,8 @@ class ObsRadarDopplerWindTLAD : public LinearObsOperatorBase,
   ~ObsRadarDopplerWindTLAD() override;
 
   void setTrajectory(const GeoVaLs &, ObsDiagnostics &, const QCFlags_t &) override;
-  void simulateObsTL(const GeoVaLs &, ioda::ObsVector &, const QCFlags_t &) const override;
-  void simulateObsAD(GeoVaLs &, const ioda::ObsVector &, const QCFlags_t &) const override;
+  void simulateObsTL(const GeoVaLs &, ioda::ObsVector &) const override;
+  void simulateObsAD(GeoVaLs &, const ioda::ObsVector &) const override;
 
   const oops::Variables & requiredVars() const override { return requiredVars_; }
 
@@ -52,10 +52,11 @@ class ObsRadarDopplerWindTLAD : public LinearObsOperatorBase,
   void print(std::ostream &) const override;
 
  private:
-  const Parameters_ params_;
-
   /// ObsSpace.
   const ioda::ObsSpace& odb_;
+
+  /// Parameters.
+  const Parameters_ params_;
 
   /// GeoVaLs required by this linear operator.
   oops::Variables requiredVars_;

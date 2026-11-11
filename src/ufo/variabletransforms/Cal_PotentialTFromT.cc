@@ -6,6 +6,7 @@
  */
 
 #include "eckit/utils/StringTools.h"
+#include "ioda/ObsSpace.h"
 #include "ufo/utils/Constants.h"
 #include "ufo/variabletransforms/Cal_PotentialTFromT.h"
 
@@ -22,8 +23,8 @@ static TransformMaker<Cal_PotentialTFromT>
 Cal_PotentialTFromT::Cal_PotentialTFromT(
         const Parameters_ &options,
         const ObsFilterData &data,
-        const std::shared_ptr<ioda::ObsDataVector<int>> &flags,
-        const std::shared_ptr<ioda::ObsDataVector<float>> &obserr)
+        ioda::ObsDataVector<int> &flags,
+        ioda::ObsDataVector<float> &obserr)
     : TransformBase(options, data, flags, obserr),
       pressurevariable_(options.PressureVariable),
       pressuregroup_(options.PressureGroup),

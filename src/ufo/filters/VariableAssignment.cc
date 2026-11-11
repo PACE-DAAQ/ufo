@@ -8,6 +8,7 @@
 #include "ufo/filters/VariableAssignment.h"
 
 #include <algorithm>
+#include <cctype>
 #include <limits>
 #include <set>
 #include <string>
@@ -34,7 +35,7 @@ namespace ufo {
 
 namespace {
 
-/// Convert a float \p x to an int by rounding. If \p is equal to \p missingIn, return \p
+/// Convert a float \p x to an int by rounding. If \p x is equal to \p missingIn, return \p
 /// missingOut. If the value to be returned is too large to be represented by an int, throw an
 /// exception.
 int safeCast(float x, float missingIn, int missingOut) {
@@ -45,12 +46,30 @@ int safeCast(float x, float missingIn, int missingOut) {
   return boost::math::iround(x);
 }
 
-/// Cast an int \p x to a float. If \p is equal to \p missingIn, return \p missingOut.
+/// Convert a float \p x to a bool by treating any nonzero value as true. If \p x is equal to
+/// \p missingIn, return \p missingOut.
+bool safeCast(float x, float missingIn, bool missingOut) {
+  if (x == missingIn) {
+    return missingOut;
+  }
+  return (x != 0.0f);
+}
+
+/// Cast an int \p x to a float. If \p x is equal to \p missingIn, return \p missingOut.
 float safeCast(int x, int missingIn, float missingOut) {
   if (x == missingIn) {
     return missingOut;
   }
   return x;
+}
+
+/// Convert an int \p x to a bool by treating any nonzero value as true. If \p x is equal to
+/// \p missingIn, return \p missingOut.
+bool safeCast(int x, int missingIn, bool missingOut) {
+  if (x == missingIn) {
+    return missingOut;
+  }
+  return (x != 0);
 }
 
 /// Convert a util::DateTime \p x to a numeric type DestinationVariableType by computing the number
@@ -99,6 +118,42 @@ void assignValue(const std::string &valueAsString,
   }
 }
 
+/// Specialization handling lenient parsing of bool constants.
+template <>
+void assignValue<bool>(const std::string &valueAsString,
+                       const std::vector<bool> &apply,
+                       ioda::ObsDataVector<bool> &values) {
+  bool newValue;
+  std::string valueLower = valueAsString;
+  std::transform(valueLower.begin(), valueLower.end(), valueLower.begin(),
+                 [](unsigned char c) { return std::tolower(c); });
+  if (valueAsString == "missing") {
+    // For bool, missingValue<bool>() is false, so `missing` is ambiguous.
+    throw eckit::BadParameter(
+        "Assigning 'missing' to a bool variable is not supported", Here());
+  } else if (valueLower == "true") {
+    newValue = true;
+  } else if (valueLower == "false") {
+    newValue = false;
+  } else {
+    float numericValue;
+    if (!ufo::readFloat(valueAsString, numericValue)) {
+      throw eckit::BadCast("Value '" + valueAsString +
+                               "' could not be converted to the required type",
+                           Here());
+    }
+    newValue = (numericValue != 0.0f);
+  }
+
+  for (size_t ival = 0; ival < values.nvars(); ++ival) {
+    std::vector<bool> &currentValues = values[ival];
+    for (size_t iloc = 0; iloc < apply.size(); ++iloc)
+      if (apply[iloc]) {
+        currentValues[iloc] = newValue;
+      }
+  }
+}
+
 /// For each location selected by the `where` statement, copy the corresponding element of
 /// \p source to \p destination.
 ///
@@ -139,10 +194,17 @@ void assignObsDataVector(const std::vector<bool> &apply,
   // Minimum and maximum destination type cast to int64_t.
   // This ensures that out-of-bounds values (caused by an inappropriate epoch)
   // are not silenty stored in the output vector.
-  const int64_t minVariableType =
-    static_cast<int64_t>(std::numeric_limits<VariableType>::lowest());
-  const int64_t maxVariableType =
-    static_cast<int64_t>(std::numeric_limits<VariableType>::max());
+  int64_t minVariableType = 0;
+  int64_t maxVariableType = 0;
+  if constexpr (std::is_same_v<VariableType, float>) {
+    // For float, use the full int64_t range to avoid overflow during cast.
+    minVariableType = std::numeric_limits<int64_t>::min();
+    maxVariableType = std::numeric_limits<int64_t>::max();
+  } else {
+    minVariableType = static_cast<int64_t>(std::numeric_limits<VariableType>::lowest());
+    maxVariableType = static_cast<int64_t>(std::numeric_limits<VariableType>::max());
+  }
+
   for (size_t ival = 0; ival < source.nvars(); ++ival) {
     const ioda::ObsDataRow<util::DateTime> &currentSource = source[ival];
     ioda::ObsDataRow<VariableType> &currentDestination = destination[ival];
@@ -240,8 +302,19 @@ void assignNumericValues(const AssignmentParameters &params,
       assignVariable<int>(*params.sourceVariable.value(), params.skipDerived,
                           apply, data, values);
       break;
+    case ioda::ObsDtype::Bool:
+      if constexpr (std::is_same_v<VariableType, bool>) {
+        assignVariable<bool>(*params.sourceVariable.value(), params.skipDerived,
+                             apply, data, values);
+      } else {
+        throw eckit::BadParameter(params.sourceVariable.value()->fullName() +
+                                  " is not a numeric variable", Here());
+      }
+      break;
     case ioda::ObsDtype::DateTime:
-      if (params.epoch.value() != boost::none) {
+      if constexpr (std::is_same_v<VariableType, bool>) {
+        throw eckit::BadParameter("Converting a DateTime to bool is not supported", Here());
+      } else if (params.epoch.value() != boost::none) {
         assignVariable(*params.sourceVariable.value(),
                        *params.epoch.value(),
                        params.skipDerived,
@@ -317,17 +390,19 @@ void saveValues(const ufo::Variable &variable,
                 const ioda::ObsDataVector<VariableType> &values,
                 ioda::ObsSpace &obsdb) {
   for (size_t ich = 0; ich < variable.size(); ++ich)
-    obsdb.put_db(variable.group(), variable.variable(ich), values[ich]);
+    obsdb.put_db(variable.group(), variable.variable(ich), values[ich], variable.dimList());
 }
 
 /// Change the QC flag from `miss` to `pass` if the obs value is no longer missing or from `pass` to
 /// `miss` if the obs value is now missing.
-void updateQCFlags(const ioda::ObsDataVector<float> &obsvalues, ioda::ObsDataVector<int> &qcflags) {
-  const float missing = util::missingValue<float>();
+template <typename VariableType>
+void updateQCFlags(const ioda::ObsDataVector<VariableType> &obsvalues,
+                         ioda::ObsDataVector<int> &qcflags) {
+  const VariableType missing = util::missingValue<VariableType>();
 
   for (size_t ivar = 0; ivar < obsvalues.nvars(); ++ivar) {
     if (qcflags.varnames().has(obsvalues.varnames()[ivar])) {
-      const ioda::ObsDataRow<float> &currentValues = obsvalues[ivar];
+      const ioda::ObsDataRow<VariableType> &currentValues = obsvalues[ivar];
       ioda::ObsDataRow<int> &currentFlags = qcflags[obsvalues.varnames()[ivar]];
       for (size_t iloc = 0; iloc < obsvalues.nlocs(); ++iloc) {
         if (currentFlags[iloc] == QCflags::missing && currentValues[iloc] != missing) {
@@ -347,10 +422,14 @@ void assignToIntVariable(const ufo::Variable &variable,
                          const AssignmentParameters &params,
                          const std::vector<bool> &apply,
                          const ObsFilterData &data,
-                         ioda::ObsSpace &obsdb) {
+                         ioda::ObsSpace &obsdb,
+                         ioda::ObsDataVector<int> &qcflags) {
   ioda::ObsDataVector<int> values = getCurrentValues<int>(variable, obsdb, params.skipDerived);
   assignNumericValues(params, variable, apply, data, values);
   saveValues(variable, values, obsdb);
+  if (variable.group() == "ObsValue" || variable.group() == "DerivedObsValue") {
+    updateQCFlags<int>(values, qcflags);
+  }
 }
 
 /// Works like `assignToIntVariable()`, but in addition if \p variable belongs to the `ObsValue` or
@@ -368,8 +447,30 @@ void assignToFloatVariable(const ufo::Variable &variable,
   assignNumericValues(params, variable, apply, data, values);
   saveValues(variable, values, obsdb);
   if (variable.group() == "ObsValue" || variable.group() == "DerivedObsValue") {
-    updateQCFlags(values, qcflags);
+    updateQCFlags<float>(values, qcflags);
   }
+}
+
+/// Works like `assignToIntVariable()`, but for bool variables.
+void assignToBoolVariable(const ufo::Variable &variable,
+                          const AssignmentParameters &params,
+                          const std::vector<bool> &apply,
+                          const ObsFilterData &data, ioda::ObsSpace &obsdb) {
+  if (variable.group() == "ObsValue" || variable.group() == "DerivedObsValue") {
+    // updateQCFlags() toggles QC flags by comparing values against
+    // util::missingValue<VariableType>(). For bool, missingValue<bool>() is
+    // false, so valid false values are indistinguishable from missing values.
+    // Assignment to ObsValue or DerivedObsValue groups has to be disallowed
+    // here, since it would lead to incorrect QC flag updates.
+    throw eckit::BadParameter(
+        "Assignment to bool variables in ObsValue or DerivedObsValue groups "
+        "is not supported",
+        Here());
+  }
+  ioda::ObsDataVector<bool> values =
+      getCurrentValues<bool>(variable, obsdb, params.skipDerived);
+  assignNumericValues(params, variable, apply, data, values);
+  saveValues(variable, values, obsdb);
 }
 
 /// Retrieve the current values of a non-numeric variable \p variable from \p obsdb (or if it
@@ -380,11 +481,15 @@ void assignToNonnumericVariable(const ufo::Variable &variable,
                                 const AssignmentParameters &params,
                                 const std::vector<bool> &apply,
                                 const ObsFilterData &data,
-                                ioda::ObsSpace &obsdb) {
+                                ioda::ObsSpace &obsdb,
+                                ioda::ObsDataVector<int> &qcflags) {
   ioda::ObsDataVector<VariableType> values =
     getCurrentValues<VariableType>(variable, obsdb, params.skipDerived);
   assignNonnumericValues(params, variable, apply, data, values);
   saveValues(variable, values, obsdb);
+  if (variable.group() == "ObsValue" || variable.group() == "DerivedObsValue") {
+    updateQCFlags<VariableType>(values, qcflags);
+  }
 }
 
 /// Delegate work to an appropriate function depending on whether \p dtype is a numeric
@@ -401,13 +506,16 @@ void assignToVariable(const ufo::Variable &variable,
     assignToFloatVariable(variable, params, apply, data, obsdb, qcflags);
     break;
   case ioda::ObsDtype::Integer:
-    assignToIntVariable(variable, params, apply, data, obsdb);
+    assignToIntVariable(variable, params, apply, data, obsdb, qcflags);
+    break;
+  case ioda::ObsDtype::Bool:
+    assignToBoolVariable(variable, params, apply, data, obsdb);
     break;
   case ioda::ObsDtype::String:
-    assignToNonnumericVariable<std::string>(variable, params, apply, data, obsdb);
+    assignToNonnumericVariable<std::string>(variable, params, apply, data, obsdb, qcflags);
     break;
   case ioda::ObsDtype::DateTime:
-    assignToNonnumericVariable<util::DateTime>(variable, params, apply, data, obsdb);
+    assignToNonnumericVariable<util::DateTime>(variable, params, apply, data, obsdb, qcflags);
     break;
   case ioda::ObsDtype::Empty:
     oops::Log::info() << "ufo::VariableAssignment::assignToVariable "
@@ -435,8 +543,28 @@ ioda::ObsDtype getDataType(boost::optional<ioda::ObsDtype> dtypeParam,
                            const ufo::Variable &variable,
                            const ioda::ObsSpace &obsdb) {
   if (dtypeParam != boost::none) {
-    // If the dtype option has been set, return its value.
-    return *dtypeParam;
+    // If the dtype option has been set check it matches the
+    // current variable type and return its value.
+    ioda::ObsDtype parametersDType = dtypeParam.value_or(ioda::ObsDtype::Empty);
+    ioda::ObsDtype currentVariableDType = dtypeParam.value_or(ioda::ObsDtype::Empty);
+    std::string variableWithChannel;
+    for (size_t ich = 0; ich < variable.size(); ++ich) {
+      variableWithChannel = variable.variable(ich);
+      if (obsdb.has(variable.group(), variableWithChannel)) {
+        currentVariableDType = obsdb.dtype(variable.group(), variableWithChannel);
+        break;
+      }
+    }
+    if (currentVariableDType != ioda::ObsDtype::Empty &&
+        currentVariableDType != parametersDType) {
+      throw eckit::BadParameter("Variable Assignment getDataType for variable: "
+                                + variableWithChannel +
+                                ". The yaml specified type does not match the type "
+                                "of the variable in the ObsSpace. "
+                                "Either change the 'type' option to match the existing variable "
+                                "or write to a new variable that does not already exist.", Here());
+    }
+    return parametersDType;
   } else {
     // Otherwise, check if the variable to which new values should be assigned already
     // exists and if so, return its data type.
@@ -449,7 +577,7 @@ ioda::ObsDtype getDataType(boost::optional<ioda::ObsDtype> dtypeParam,
     // The variable doesn't exist yet.
     throw eckit::BadParameter("You need to specify the type of the variable to be created "
                               "by setting the 'type' option of the filter to 'float', 'int', "
-                              "'string' or 'datetime'.");
+                              "'string', 'datetime' or 'bool'.");
   }
 }
 
@@ -475,9 +603,9 @@ void AssignmentParameters::deserialize(util::CompositePath &path,
 
 
 VariableAssignment::VariableAssignment(ioda::ObsSpace & obsdb, const Parameters_ & parameters,
-                                       std::shared_ptr<ioda::ObsDataVector<int> > flags,
-                                       std::shared_ptr<ioda::ObsDataVector<float> > obserr)
-  : ObsProcessorBase(obsdb, parameters.deferToPost, std::move(flags), std::move(obserr)),
+                                       ioda::ObsDataVector<int> & flags,
+                                       ioda::ObsDataVector<float> & obserr)
+  : ObsProcessorBase(obsdb, parameters.deferToPost, flags, obserr),
     parameters_(parameters)
 {
   oops::Log::trace() << "VariableAssignment constructor" << std::endl;
@@ -504,7 +632,7 @@ void VariableAssignment::doFilter() {
   for (const AssignmentParameters &assignment : parameters_.assignments.value()) {
     const ufo::Variable variable = getVariable(assignment);
     const ioda::ObsDtype dtype = getDataType(assignment.type, variable, obsdb_);
-    assignToVariable(variable, dtype, assignment, apply, data_, obsdb_, *flags_);
+    assignToVariable(variable, dtype, assignment, apply, data_, obsdb_, flags_);
   }
 
   oops::Log::trace() << "VariableAssignment doFilter complete" << std::endl;

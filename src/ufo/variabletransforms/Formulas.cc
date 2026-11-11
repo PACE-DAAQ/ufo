@@ -192,8 +192,8 @@ float Qsat_From_Psat(float Psat, float P, Formulation formulation) {
 
   switch (formulation) {
     case Formulation::GillUKMO:
-      QSat = (Constants::epsilon * Psat) /
-             (std::max(P, Psat) - (1.0f - Constants::epsilon) * Psat);
+      QSat = (Constants::rd_over_rv * Psat) /
+             (std::max(P, Psat) - (1.0f - Constants::rd_over_rv) * Psat);
       break;
     default: {
       std::string errString =
@@ -213,7 +213,7 @@ float VirtualTemp_From_Psat_P_T(float Psat, float P, float T, Formulation formul
 
   switch (formulation) {
     case Formulation::DEFAULT: {
-      Tv = T * ((P + Psat / Constants::epsilon) / (P + Psat));
+      Tv = T * ((P + Psat / Constants::rd_over_rv) / (P + Psat));
       break;
     }
     default: {
@@ -246,6 +246,15 @@ float VirtualTemp_From_Rh_Psat_P_T(float Rh, float Psat, float P, float T,
     }
   }
 
+  return Tv;
+}
+
+/* -------------------------------------------------------------------------------------*/
+
+float VirtualTemp_From_Sh_AT(float Sh, float At) {
+  float Tv = util::missingValue<float>();  // virtual temperature
+  float qv = std::max(1.0e-12f, Sh/(1.0f-Sh));  // specific humidity
+  Tv = At * (Constants::one + (Constants::t2tv * qv));
   return Tv;
 }
 
@@ -363,7 +372,7 @@ float GetWindDirection(float u, float v) {
 
   if (u != missing && v != missing) {
     if (u != 0.0f || v != 0.0f) {
-        windDirection = fmod((270.0f - atan2(v, u) * Constants::rad2deg), 360.0f);
+        windDirection = std::fmod((270.0f - std::atan2(v, u) * Constants::rad2deg), 360.0f);
     } else {
         windDirection = 0.0f;
     }
@@ -376,7 +385,7 @@ float GetWindSpeed(float u, float v) {
   float windSpeed = missing;  // wind speed
 
   if (u != missing && v != missing) {
-        windSpeed = hypot(u, v);
+        windSpeed = std::hypot(u, v);
   }
   return windSpeed;
 }
@@ -387,7 +396,7 @@ float GetWind_U(float windSpeed, float windFromDirection) {
 
   if (windFromDirection != missing
       && windSpeed != missing && windSpeed >= 0) {
-    u = -windSpeed * sin(windFromDirection * Constants::deg2rad);
+    u = -windSpeed * std::sin(windFromDirection * Constants::deg2rad);
   }
   return u;
 }
@@ -399,7 +408,7 @@ float GetWind_V(float windSpeed, float windFromDirection) {
 
   if (windFromDirection != missing
       && windSpeed != missing && windSpeed >= 0) {
-    v = -windSpeed * cos(windFromDirection * Constants::deg2rad);
+    v = -windSpeed * std::cos(windFromDirection * Constants::deg2rad);
   }
   return v;
 }
@@ -512,7 +521,7 @@ void horizontalDrift
         (windspd[loc_current] * std::cos((winddir[loc_current] - 180.0) * Constants::deg2rad) +
          windspd[loc_next] * std::cos((winddir[loc_next] - 180.0) * Constants::deg2rad));
       // Total height of the observation above the centre of the Earth.
-      const double totalheight = ufo::Constants::mean_earth_rad * 1000.0 + height[loc_current];
+      const double totalheight = ufo::Constants::mean_earth_rad_m + height[loc_current];
       // Change in latitude.
       const double dlat = ufo::Constants::rad2deg * avgv * dt / totalheight;
       // Change in longitude.
@@ -565,7 +574,7 @@ float BackgroundPressure(float PSurfParamA, float  PSurfParamB, float height) {
   float BkP = util::missingValue<float>();
   double ToRaise =  (PSurfParamA - height)/PSurfParamB;
   if (ToRaise > 0.0) {
-    BkP = pow(ToRaise, (Constants::grav/(Constants::Lclr*Constants::rd)));
+    BkP = std::pow(ToRaise, (Constants::grav/(Constants::Lclr*Constants::rd)));
   }
   return BkP;
 }

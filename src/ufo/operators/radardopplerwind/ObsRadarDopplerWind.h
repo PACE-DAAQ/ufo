@@ -41,11 +41,16 @@ namespace ufo {
 /// for the horizontal (u, v) and vertical (w) wind speeds. That will ensure the correct
 /// vertical interpolation is performed.
 ///
+/// Optionally, a constant precipitation terminal fall velocity [m/s] can be subtracted
+/// from the vertical wind (w) before it is projected onto the radar beam. It defaults to 0,
+/// i.e. no fall-speed correction is applied.
+///
 /// An example yaml configuration is as follows:
 ///  obs operator:
 ///    name: RadarDopplerWind
 ///    vertical coordinate for horizontal wind: height_above_mean_sea_level_levels
 ///    vertical coordinate for vertical wind: height_above_mean_sea_level
+///    terminal velocity: 0.0
 ///
 class ObsRadarDopplerWind : public ObsOperatorBase,
   private util::ObjectCounter<ObsRadarDopplerWind> {
@@ -68,10 +73,11 @@ class ObsRadarDopplerWind : public ObsOperatorBase,
   void print(std::ostream &) const override;
 
  private:
-  const Parameters_ params_;
-
   /// ObsSpace.
   const ioda::ObsSpace& odb_;
+
+  // Parameters.
+  const Parameters_ params_;
 
   /// GeoVaLs required by this operator.
   oops::Variables requiredVars_;

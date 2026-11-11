@@ -16,6 +16,7 @@
 
 #include "ioda/ObsDataVector.h"
 #include "oops/util/IntSetParser.h"
+#include "oops/util/Logger.h"
 #include "oops/util/missingValues.h"
 #include "ufo/filters/ObsFilterData.h"
 #include "ufo/filters/Variable.h"
@@ -56,7 +57,6 @@ void ObsErrorBoundConventional::compute(const ObsFilterData & in,
   const float &obserr_bound_max = options_->obserrBoundMax.value();
   const float &obserr_bound_min = options_->obserrBoundMin.value();
   const float &obserr_bound_factor = options_->obserrBoundFactor.value();
-  const float missing = util::missingValue<float>();
 
   std::vector<float> currentObserr(nlocs);
   const std::string obsvar = options_->obsvar.value();

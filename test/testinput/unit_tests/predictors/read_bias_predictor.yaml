@@ -23,6 +23,7 @@ _: &all_channels 16, 38, 49, 51, 55, 57, 59, 61, 63, 66, 70, 72, 74, 79, 81,
 time window:
   begin: 2000-01-14T21:00:00Z
   end: 3000-01-15T03:00:00Z
+  bound to include: begin  # consistency with test data from "ncdiag"
 
 observations:
 - obs space:
@@ -78,6 +79,8 @@ observations:
 #       obsfile: Data/aod_obs_2018041500_m_predictors_out.nc4
     simulated variables: [aerosolOpticalDepth]
     channels: &channels 4
+  # ObsValue/aerosolOpticalDepth (and the matching TestReference) is missing at location 0,
+  # valid at the other 99 locations, should come out missing at location 0 rather than 0
   geovals:
     filename: Data/ufo/testinput_tier_1/aod_geoval_2018041500_m.nc4
   obs bias:

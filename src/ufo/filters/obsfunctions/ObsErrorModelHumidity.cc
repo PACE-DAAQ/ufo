@@ -206,9 +206,9 @@ void ObsErrorModelHumidity::compute(const ObsFilterData & data,
 
     // Convert pressure to log(pressure)
     for (size_t ilev = 0; ilev < nlevs; ++ilev) {
-      logp[ilev] = log(pressure_gval[ilev]);
+      logp[ilev] = std::log(pressure_gval[ilev]);
     }
-    logp_ob = log(ob_pressure[jobs]);
+    logp_ob = std::log(ob_pressure[jobs]);
 
     // Interpolate geoval temperature to obs pressure
     ufo::PiecewiseLinearInterpolation vert_interp_model(logp, airTemperature_gval);
@@ -218,7 +218,7 @@ void ObsErrorModelHumidity::compute(const ObsFilterData & data,
     satVaporPres = formulas::SatVaporPres_fromTemp(temp, formulation);
 
     // Convert saturated vapor pressure to saturation specific humidity
-    satSpecificHumidity = Constants::epsilon * satVaporPres / ob_pressure[jobs];
+    satSpecificHumidity = Constants::rd_over_rv * satVaporPres / ob_pressure[jobs];
 
     // Output error is the product of interpolated RH error and forecast
     // saturation specific humidity

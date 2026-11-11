@@ -8,6 +8,8 @@
 #ifndef UFO_FILTERS_METOFFICEBUDDYCHECK_H_
 #define UFO_FILTERS_METOFFICEBUDDYCHECK_H_
 
+#include <Eigen/Core>
+
 #include <map>
 #include <memory>
 #include <ostream>
@@ -85,8 +87,8 @@ class MetOfficeBuddyCheck : public FilterBase,
   static const std::string classname() {return "ufo::MetOfficeBuddyCheck";}
 
   MetOfficeBuddyCheck(ioda::ObsSpace &obsdb, const Parameters_ &parameters,
-                      std::shared_ptr<ioda::ObsDataVector<int> > flags,
-                      std::shared_ptr<ioda::ObsDataVector<float> > obserr);
+                      ioda::ObsDataVector<int> &flags,
+                      ioda::ObsDataVector<float> &obserr);
 
  private:
   struct MetaData;

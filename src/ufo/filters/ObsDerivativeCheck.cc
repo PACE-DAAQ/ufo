@@ -28,8 +28,8 @@ namespace ufo {
 // -----------------------------------------------------------------------------
 
 ObsDerivativeCheck::ObsDerivativeCheck(ioda::ObsSpace & obsdb, const Parameters_ & parameters,
-                               std::shared_ptr<ioda::ObsDataVector<int> > flags,
-                               std::shared_ptr<ioda::ObsDataVector<float> > obserr)
+                                       ioda::ObsDataVector<int> & flags,
+                                       ioda::ObsDataVector<float> & obserr)
   : FilterBase(obsdb, parameters, flags, obserr),
     parameters_(parameters)
 {
@@ -102,7 +102,7 @@ void ObsDerivativeCheck::applyFilter(const std::vector<bool> & apply,
                                  std::vector<std::vector<bool>> & flagged) const {
   oops::Log::trace() << "ObsDerivativeCheck applyFilter start" << std::endl;
   const float missing = util::missingValue<float>();
-  const double radiusEarth = Constants::mean_earth_rad*1000.0;
+  const double radiusEarth = Constants::mean_earth_rad_m;
 
   // first we want to get the config of the two vars to use in computing the derivative
   const std::string strInd_ = parameters_.independent;
@@ -142,7 +142,6 @@ void ObsDerivativeCheck::applyFilter(const std::vector<bool> & apply,
         ioda::ObsDataVector<float> varDepX_(obsdb_, "longitude", "MetaData");
         ioda::ObsDataVector<float> varDepY_(obsdb_, "latitude", "MetaData");
         for ( irec = obsdb_.recidx_begin(); irec != obsdb_.recidx_end(); ++irec ) {
-          std:: size_t rNum = obsdb_.recidx_recnum(irec);
           std::vector<std::size_t> rSort = obsdb_.recidx_vector(irec);
           for (size_t ilocs = 0; ilocs < rSort.size(); ++ilocs) {
             get_locs(rSort, i1, i2, ilocs, ii1, ii2);
@@ -166,7 +165,6 @@ void ObsDerivativeCheck::applyFilter(const std::vector<bool> & apply,
       } else {
         ioda::ObsDataVector<float> varDep_(obsdb_, strDep_, "MetaData");
         for ( irec = obsdb_.recidx_begin(); irec != obsdb_.recidx_end(); ++irec ) {
-          std:: size_t rNum = obsdb_.recidx_recnum(irec);
           std::vector<std::size_t> rSort = obsdb_.recidx_vector(irec);
           for (size_t ilocs = 0; ilocs < rSort.size(); ++ilocs) {
             get_locs(rSort, i1, i2, ilocs, ii1, ii2);
@@ -190,7 +188,6 @@ void ObsDerivativeCheck::applyFilter(const std::vector<bool> & apply,
       ioda::ObsDataVector<float> varIndY_(obsdb_, "latitude", "MetaData");
       ioda::ObsSpace::RecIdxIter irec;
       for ( irec = obsdb_.recidx_begin(); irec != obsdb_.recidx_end(); ++irec ) {
-        std:: size_t rNum = obsdb_.recidx_recnum(irec);
         std::vector<std::size_t> rSort = obsdb_.recidx_vector(irec);
         for (size_t ilocs = 0; ilocs < rSort.size(); ++ilocs) {
           get_locs(rSort, i1, i2, ilocs, ii1, ii2);
@@ -216,7 +213,6 @@ void ObsDerivativeCheck::applyFilter(const std::vector<bool> & apply,
       ioda::ObsDataVector<float> varInd_(obsdb_, strInd_, "MetaData");
       ioda::ObsSpace::RecIdxIter irec;
       for ( irec = obsdb_.recidx_begin(); irec != obsdb_.recidx_end(); ++irec ) {
-        std:: size_t rNum = obsdb_.recidx_recnum(irec);
         std::vector<std::size_t> rSort = obsdb_.recidx_vector(irec);
         for (size_t ilocs = 0; ilocs < rSort.size(); ++ilocs) {
           get_locs(rSort, i1, i2, ilocs, ii1, ii2);

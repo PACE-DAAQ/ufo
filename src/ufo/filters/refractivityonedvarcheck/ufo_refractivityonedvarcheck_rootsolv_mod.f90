@@ -14,6 +14,7 @@ use missing_values_mod, only: missing_value
 use logger_mod, only: oops_log
 use ufo_gnssro_refmetoffice_mod, only: RefMetOffice_ForwardModel
 use ufo_gnssro_refmetoffice_tlad_mod, only: jacobian_interface
+implicit none
 
 private
 public :: Ops_GPSRO_rootsolv
@@ -54,6 +55,8 @@ SUBROUTINE Ops_GPSRO_rootsolv( &
   GPSRO_vert_interp_ops, & ! Whether to vertically interpolate using exner or ln(p)
   GPSRO_min_temp_grad, &   ! Minimum vertical temperature gradient allowed
   capsupersat,   &
+  dryRefractivityConstant, &
+  wetRefractivityConstant, &
   O_Bdiff,       &   ! observed-background refractivity value
   Tb,            &
   Ts,            &
@@ -101,6 +104,8 @@ LOGICAL, INTENT(IN)            :: GPSRO_pseudo_ops       !< Whether to use pseud
 LOGICAL, INTENT(IN)            :: GPSRO_vert_interp_ops  !< Use log(p) for vertical interpolation?
 REAL(kind_real), INTENT(IN)    :: GPSRO_min_temp_grad    !< Threshold for vertical temperature gradient
 LOGICAL, INTENT(IN)            :: capsupersat            !< Remove super-saturation?
+REAL(kind_real), INTENT(IN)    :: dryRefractivityConstant !< Dry refractivity constant
+REAL(kind_real), INTENT(IN)    :: wetRefractivityConstant !< Wet refractivity constant
 INTEGER, INTENT(OUT)           :: it                     !< Number of iterations taken
 REAL(kind_real), INTENT(OUT)   :: x(:)                   !< Model state at minimum
 REAL(kind_real), INTENT(OUT)   :: yb(:)                  !< Calculated refractivity for the background state
@@ -200,13 +205,13 @@ ErrorCode = missing_value(ErrorCode)
 !-----------------------
 
 ! Data to stdout on convergence of iteration loop
-call oops_log % info('J_pen|Conv_test|ct2|lambda|d2|(dJ/dx)^2|')
+call oops_log % info("J_pen|Conv_test|ct2|lambda|d2|(dJ/dx)^2|")
 
 Iteration_loop: DO
 
   IF (it > Iter_max .OR. &
       (Conv_test < Delta  .AND.  &
-      ct2 < Delta_ct2 * (Nobs / 200.0_kind_real))) EXIT   ! exit the iteration
+      ct2 < Delta_ct2 * (Nobs / 200.0_kind_real))) EXIT Iteration_loop
 
   ! Count no. of iterations
 
@@ -217,7 +222,7 @@ Iteration_loop: DO
   ! Call the 1D refractivity forward model
 
   !  1.  First calculate model refractivity on theta levels
-  
+
   ! Unpack the solution to p and q, changing back to SI units
   pressure = 100 * x(1:nlevp)
   humidity = 0.001 * x(nlevp+1:nlevp+nlevq)
@@ -231,6 +236,8 @@ Iteration_loop: DO
                                  GPSRO_pseudo_ops, &
                                  GPSRO_vert_interp_ops, &
                                  GPSRO_min_temp_grad, &
+                                 dryRefractivityConstant, &
+                                 wetRefractivityConstant, &
                                  nobs, &
                                  zobs, &
                                  ycalc, &
@@ -242,7 +249,7 @@ Iteration_loop: DO
   DEALLOCATE(refractivity, model_heights)
 
   ! no point proceeding further if ...
-  IF (RefracErr) EXIT
+  IF (RefracErr) EXIT Iteration_loop
 
   ! Store the refractivity values calculated with `x(:)=xb(:)'
 
@@ -305,6 +312,8 @@ Iteration_loop: DO
                             GPSRO_pseudo_ops, &       ! Whether to use pseudo-levels in the calculation
                             GPSRO_vert_interp_ops, &  ! Whether to interpolate using log(pressure)
                             GPSRO_min_temp_grad, &    ! Minimum allowed vertical temperature gradient
+                            dryRefractivityConstant, & ! Dry refractivity constant
+                            wetRefractivityConstant, & ! Wet refractivity constant
                             nobs, &                   ! Number of observations in the profile
                             zobs, &                   ! Height of the observations
                             Kmat)                     ! K-matrix (Jacobian of the observation with respect to the inputs)
@@ -371,7 +380,7 @@ Iteration_loop: DO
                      dx,        &   ! The answer, i.e. the "increment"
                      ErrorCode)
 
-  IF (ErrorCode /= 0) EXIT
+  IF (ErrorCode /= 0) EXIT Iteration_loop
 
   ! Update estimate, but limit magnitude of increment with expected background
   ! error
@@ -398,16 +407,16 @@ Iteration_loop: DO
   sdx(:) = MATMUL (Amat(:,:) , (x(:) - xold(:)))  !S^-1.dx
   d2 = DOT_PRODUCT ((x(:) - xold(:)) , Sdx(:))    !d^2=dx(S^-1)dx, size of step normalized by error size
 
-  WRITE (message,'(6E14.6)') J_pen, Conv_test, ct2, lambda, d2, ct3
+  WRITE (message,"(6E14.6)") J_pen, Conv_test, ct2, lambda, d2, ct3
   call oops_log % info(message)
 
 END DO Iteration_loop
 
 Ts(:) = T(:)                  !1DVAR solution temperature
 
-WRITE (message, '(A,I0)') 'Number of iterations ', it   !write out number of iterations done
+WRITE (message, "(A,I0)") "Number of iterations ", it   !write out number of iterations done
 call oops_log % info(message)
-WRITE (message, '(A,E16.8)') 'O-B size ', O_Bdiff
+WRITE (message, "(A,E16.8)") "O-B size ", O_Bdiff
 call oops_log % info(message)
 
 ! Output the x(:) that gave the lowest cost function
@@ -445,7 +454,7 @@ IF (ErrorCode == 0 .AND. it <= iter_max) THEN
     DFS = DFS + AKOK(i,i)
   END DO
 
-  WRITE (message,'(A,F16.4)') 'DFS', DFS
+  WRITE (message,"(A,F16.4)") "DFS", DFS
   call oops_log % info(message)
 ELSE
 
