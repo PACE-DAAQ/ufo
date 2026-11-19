@@ -192,7 +192,8 @@ CREATE_SYMLINK( ${CMAKE_CURRENT_SOURCE_DIR} ${CMAKE_CURRENT_BINARY_DIR} ${ufo_te
 #####################################################################
 # Install headers used in tests of interfaces that may be implemented by clients.
 
-install( FILES ufo/ObsDiagnostics.h ufo/ObsFilters.h ufo/ObsFunction.h ufo/Predictor.h
+install( FILES ufo/EmptyGeoVaLs.h ufo/ObsDiagnostics.h ufo/ObsFilters.h ufo/ObsFunction.h
+         ufo/Predictor.h
          DESTINATION ${INSTALL_INCLUDE_DIR}/ufo/test/ufo)
 
 #####################################################################
@@ -220,6 +221,11 @@ ecbuild_add_executable( TARGET  test_ObsOperator.x
 
 ecbuild_add_executable( TARGET  test_ObsOperatorTLAD.x
                         SOURCES mains/TestObsOperatorTLAD.cc
+                        LIBS    ufo
+                       )
+
+ecbuild_add_executable( TARGET  test_ObsOperatorShared.x
+                        SOURCES mains/TestObsOperatorShared.cc
                         LIBS    ufo
                        )
 
@@ -738,6 +744,8 @@ if( ${rttov_FOUND} )
     rttov7pred54L/rtcoef_jpss_0_atms.dat
     rttov7pred54L/rtcoef_noaa_20_atms.dat
     rttov7pred101L/rtcoef_mtg_2_irs.${RTTOV_COEF_EXT}
+    rttov13pred54L/rtcoef_noaa_19_amsua_o3.dat
+    hydrotable/rttov_hydrotable_noaa_19_amsua_o3.dat
     )
   list( APPEND rttov_emis_atlas_data
     CAMEL_coef_climatology_01Month_V00${RTTOV_CAMEL_VERSION}.${RTTOV_COEF_EXT}
